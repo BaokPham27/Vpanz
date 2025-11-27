@@ -1,0 +1,28 @@
+{
+  "name": "vpan",
+  "version": "1.0.0",
+  "description": "Vpan - Mobile App with React Native/Expo and Node.js Backend",
+  "private": true,
+  "scripts": {
+    "mobile": "cd mobile && npm start",
+    "mobile:android": "cd mobile && npm run android",
+    "mobile:ios": "cd mobile && npm run ios",
+    "server": "cd server && npm run dev",
+    "server:start": "cd server && npm start",
+    "install:all": "npm install --prefix mobile && npm install --prefix server",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vuong280904/Vpan.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "expo": "~53.0.24",
+    "express": "^5.1.0",
+    "react": "19.0.0",
+    "react-native": "0.79.6"
+  }
+}
