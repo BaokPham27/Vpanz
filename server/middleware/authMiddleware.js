@@ -1,24 +1,31 @@
-// middleware/auth.js – HOÀN HẢO, KHÔNG CẦN SỬA GÌ NHIỀU
+// middleware/auth.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const protect = async (req, res, next) => {
-  let token;
+  console.log('===== PROTECT MIDDLEWARE =====');
+  console.log('Authorization header:', req.headers.authorization);
 
+  let token;
   if (req.headers.authorization?.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
       console.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
+
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'vpan_secret_2025');
-      console.log('Token decoded. User ID:', decoded.id);
+      console.log('Token decoded:', decoded);
 
       req.user = await User.findById(decoded.id).select('-password');
-      console.log('User found:', req.user ? req.user.email : 'NOT FOUND');
-      if (!req.user) return res.status(401).json({ message: 'User not found' });
+      console.log('Found user:', req.user?.email, 'Role:', req.user?.role);
+
+      if (!req.user) {
+        console.log('User not found, unauthorized');
+        return res.status(401).json({ message: 'User not found' });
+      }
 
       next();
-    } catch (error) {
-      console.error('Auth error:', 'Token error:', error.message);
+    } catch (err) {
+      console.error('Auth error:', err.message);
       return res.status(401).json({ message: 'Not authorized, token failed' });
     }
   } else {
@@ -27,4 +34,16 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// Middleware kiểm tra admin
+const admin = (req, res, next) => {
+  console.log('===== ADMIN CHECK MIDDLEWARE =====');
+  console.log('User role:', req.user?.role);
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    console.log('Not admin, redirecting...');
+    return res.status(403).json({ message: 'Admin only' });
+  }
+};
+
+module.exports = { protect, admin };

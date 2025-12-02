@@ -4,7 +4,9 @@ import {
 } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Dimensions, Image, Modal, SafeAreaView, ScrollView, StatusBar,
+  Dimensions, Image, Modal,
+  Platform,
+  SafeAreaView, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
 } from 'react-native';
 import { io, Socket } from 'socket.io-client';
@@ -31,7 +33,7 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
   return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user.email)}` };
 };
 const { width } = Dimensions.get('window');
-const SOCKET_URL = 'http://26.94.144.5:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
+const SOCKET_URL = 'http://10.249.2.233:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
 // Notification realtime
 
 
@@ -100,7 +102,19 @@ export default function VpanDashboard() {
   const [searchLoading, setSearchLoading] = useState(false);
 
   const isDark = theme === 'dark';
+useEffect(() => {
+  // Nếu đang ở root và chưa có user thì điều hướng theo nền tảng
+  if (user) return; // nếu đã login thì không redirect
 
+  // Phân biệt web vs native
+  if (Platform.OS === 'web') {
+    // thay '/AuthScreen' bằng route web của bạn
+    router.replace('/AuthScreen');
+  } else {
+    // thay '/login' bằng route mobile của bạn
+    router.replace('/login');
+  }
+}, [user]);
   useEffect(() => {
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
   }, [isDark]);
@@ -112,8 +126,23 @@ export default function VpanDashboard() {
 
   const confirmLogout = async () => {
     setLogoutModalVisible(false);
-    await logout();
-    router.replace('/login');
+    try {
+      // 1. Gọi backend logout
+      await api.post('/api/logout', {}, {
+        headers: { Authorization: `Bearer ${(user as any)?.token}` }
+      });
+    } catch (err) {
+      console.error('Logout lỗi:', err);
+    }
+
+    // 2. Xóa token, reset user & role
+    logout(); // hàm trong context của bạn
+    // Nếu cần cụ thể:
+    // setUser(null);
+    // setRole(null); 
+
+    // 3. Redirect về AuthScreen
+    router.replace('/AuthScreen');
   };
 
   // ==================== SOCKET CONNECTION ====================
@@ -429,7 +458,7 @@ export default function VpanDashboard() {
         )}
 
         {/* AVATAR MENU */}
-                {/* AVATAR MENU – ĐÃ THÊM NÚT NÂNG CẤP PREMIER */}
+        {/* AVATAR MENU – ĐÃ THÊM NÚT NÂNG CẤP PREMIER */}
         {avatarOpen && (
           <View pointerEvents="box-none" style={[styles.avatarMenu, isDark ? styles.menuDark : styles.menuLight]}>
             <View style={styles.avatarMenuHeader}>
@@ -445,9 +474,17 @@ export default function VpanDashboard() {
               <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Chỉnh sửa hồ sơ</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setAvatarOpen(false); // đóng menu trước cho mượt
+                router.push('/(auth)/(tabs)/MyFlashcardSetsScreen' as any);
+              }}
+            >
               <BookOpen color={isDark ? '#fff' : '#2b2b2b'} width={18} height={18} />
-              <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Quản lý flashcard</Text>
+              <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>
+                Quản lý flashcard
+              </Text>
             </TouchableOpacity>
 
             {/* NÚT MỚI – NÂNG CẤP PREMIER */}
@@ -457,11 +494,11 @@ export default function VpanDashboard() {
                 setAvatarOpen(false); // đóng dropdown trước cho mượt
                 router.push('/upgrade' as any); // hoặc '/premium', '/billing'...
               }}>
-              <View style={{ 
-                backgroundColor: '#f59e0b', 
-                padding: 6, 
-                borderRadius: 8, 
-                marginRight: 10 
+              <View style={{
+                backgroundColor: '#f59e0b',
+                padding: 6,
+                borderRadius: 8,
+                marginRight: 10
               }}>
                 <Crown color="#fff" width={16} height={16} /> {/* bạn cần import Crown */}
               </View>
@@ -488,37 +525,29 @@ export default function VpanDashboard() {
 
         {/* NỘI DUNG CHÍNH */}
         <ScrollView contentContainerStyle={styles.contentFullWidth}>
-          <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
-            <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>Thống kê hôm nay</Text>
-            <View style={styles.statRow}>
-              <View style={styles.statColLeft}><Text style={styles.statLabel}>Lượt học</Text><Text style={[styles.statValue, isDark ? styles.txtLight : styles.txtDark]}>12</Text></View>
-              <View style={styles.statColCenter}><Text style={styles.statLabel}>Số bài hoàn thành</Text><Text style={[styles.statValue, isDark ? styles.txtLight : styles.txtDark]}>8</Text></View>
-              <View style={styles.statColRight}><Text style={styles.statLabel}>Thời gian trung bình (phút)</Text><Text style={[styles.statValue, isDark ? styles.txtLight : styles.txtDark]}>45</Text></View>
-            </View>
-          </View>
 
-<View style={styles.quickActionsGrid}>
-  {QUICK_ACTIONS.map((action, index) => (
-    <TouchableOpacity
-      key={index}
-      style={[styles.actionBtnV2, { backgroundColor: action.bg, shadowColor: action.color }]}
-onPress={() => {
-  if (action.title === 'Sách Song Ngữ') {
-    router.push('/books/list' as any); // Dùng "as any" để bypass tạm thời
-  } else if (action.title === 'Flashcard') {
-    router.push('/FlashSet' as any);
-  } else if (action.title === 'Luyện Thi') {
-    router.push('/(quiz)' as any);
-  } else if (action.title === 'Shadowing') {
-    router.push('/shadowTopic' as any);
-  }
-}}
-    >
-      <action.icon color={action.color} size={30} />
-      <Text style={[styles.actionTextV2, { color: action.color }]}>{action.title}</Text>
-    </TouchableOpacity>
-  ))}
-</View>
+          <View style={styles.quickActionsGrid}>
+            {QUICK_ACTIONS.map((action, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[styles.actionBtnV2, { backgroundColor: action.bg, shadowColor: action.color }]}
+                onPress={() => {
+                  if (action.title === 'Sách Song Ngữ') {
+                    router.push('/books/list' as any); // Dùng "as any" để bypass tạm thời
+                  } else if (action.title === 'Flashcard') {
+                    router.push('/FlashSet' as any);
+                  } else if (action.title === 'Luyện Thi') {
+                    router.push('/(quiz)' as any);
+                  } else if (action.title === 'Shadowing') {
+                    router.push('/shadowTopic' as any);
+                  }
+                }}
+              >
+                <action.icon color={action.color} size={30} />
+                <Text style={[styles.actionTextV2, { color: action.color }]}>{action.title}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
           <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
             <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>Flashcards bạn có thể làm</Text>
@@ -598,7 +627,21 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
   menuText: { fontSize: 15 },
 
-  messageDropdown: { position: 'absolute', top: 64, right: 110, width: 360, height: 450, borderRadius: 12, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 10, overflow: 'hidden', paddingTop: 10 },
+  messageDropdown: {
+    position: 'absolute',
+    top: 68,
+    right: 12,                     // thêm left để nó co giãn
+    maxWidth: 400,
+    height: 480,
+    alignSelf: 'center',             // quan trọng: căn giữa nếu màn to
+    borderRadius: 16,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 20,
+    overflow: 'hidden',
+  },
   notificationDropdown: { position: 'absolute', top: 64, right: 60, width: 360, height: 450, borderRadius: 12, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 10, overflow: 'hidden', paddingTop: 10 },
   dropdownTitle: { fontSize: 20, fontWeight: '800', paddingHorizontal: 15, marginBottom: 5 },
   dropdownScroll: { paddingHorizontal: 8 },
@@ -620,7 +663,19 @@ const styles = StyleSheet.create({
   contentFullWidth: { padding: 16, paddingBottom: 60, flexGrow: 1 },
 
   quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20, marginHorizontal: -4 },
-  actionBtnV2: { width: '48%', aspectRatio: 4.41, borderRadius: 16, padding: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 8, marginHorizontal: 4, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 8 },
+  actionBtnV2: {
+    width: '48%',              // luôn khoảng 2 cột
+    aspectRatio: 3.5,            // vuông, dễ xếp grid
+    borderRadius: 16,
+    padding: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
   actionTextV2: { fontSize: 16, fontWeight: '800' },
 
   card: { borderRadius: 14, marginBottom: 16, overflow: 'hidden', padding: 16 },

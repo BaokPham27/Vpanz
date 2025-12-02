@@ -21,8 +21,8 @@ const api = axios.create({
   baseURL:
     Platform.OS === "web"
       ? "http://localhost:5000/api/auth"
-      : "http://26.94.144.5:5000/api/auth", // ← ĐÚNG IP MÁY BẠN HIỆN TẠI
-  timeout: 10000,
+      : "http://10.249.2.233:5000/api/auth", // ← ĐÚNG IP MÁY BẠN HIỆN TẠI
+  timeout: 100000,
 });
 
 export default function LoginScreen() {

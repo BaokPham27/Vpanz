@@ -5,17 +5,17 @@ import { router } from 'expo-router';
 import { Edit2, Eye, EyeOff, Lock, Shield, User, X } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useAuth } from '../../../../context/AuthContext';
 import api from '../../../utils/api';
@@ -30,7 +30,7 @@ export default function EditProfile() {
   const [avatar, setAvatar] = useState<string | null>(user?.avatarURL || null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'user' | 'teacher'>((user?.role as any) || 'user');
+  const [role, setRole] = useState<'student' | 'teacher'>((user?.role as any) || 'student');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -263,7 +263,7 @@ export default function EditProfile() {
                   Vai trò của bạn
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
-                  {(['user', 'teacher'] as const).map((r) => (
+                  {(['student', 'teacher'] as const).map((r) => (
                     <TouchableOpacity
                       key={r}
                       onPress={() => setRole(r)}

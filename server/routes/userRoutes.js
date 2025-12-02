@@ -11,16 +11,16 @@ router.get('/search', auth, async (req, res) => {
 
     const searchQuery = q
       ? {
-        $or: [
-          { name: { $regex: q, $options: 'i' } },
-          { email: { $regex: q, $options: 'i' } }
-        ],
-        _id: { $ne: req.user._id }
-      }
+          $or: [
+            { name: { $regex: q, $options: 'i' } },
+            { email: { $regex: q, $options: 'i' } }
+          ],
+          _id: { $ne: req.user._id }
+        }
       : { _id: { $ne: req.user._id } };
 
     const users = await User.find(searchQuery)
-      .select('name email avatarURL _id')
+      .select('name email avatarURL role _id')  // ← THÊM "role" VÀO ĐÂY!!!
       .sort({ name: 1 })
       .limit(q ? 30 : 100)
       .lean();
@@ -29,7 +29,8 @@ router.get('/search', auth, async (req, res) => {
       id: u._id.toString(),
       name: u.name,
       email: u.email,
-      avatarURL: u.avatarURL && u.avatarURL.trim() !== '' ? u.avatarURL : null
+      avatarURL: u.avatarURL && u.avatarURL.trim() !== '' ? u.avatarURL : null,
+      role: u.role
     }));
 
     res.json(formatted);
@@ -81,6 +82,70 @@ router.patch('/me', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Lỗi cập nhật profile:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// ==== ADMIN ONLY: SỬA USER KHÁC ====
+router.patch('/:id', auth, async (req, res) => {
+  try {
+    // Chỉ admin mới được sửa user khác
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin mới được phép' });
+    }
+
+    const { name, email, role, password } = req.body;
+    const updates = {};
+
+    if (name) updates.name = name;
+    if (email) updates.email = email;
+    if (role && ['student', 'teacher', 'admin'].includes(role)) updates.role = role;
+
+    if (password && password.length >= 6) {
+      const bcrypt = require('bcryptjs');
+      updates.password = await bcrypt.hash(password, 10);
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) return res.status(404).json({ message: 'User không tồn tại' });
+
+    res.json({
+      success: true,
+      user: {
+        id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        avatarURL: updatedUser.avatarURL || null
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ==== ADMIN ONLY: XÓA USER ====
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin mới được phép' });
+    }
+
+    // Không cho xóa chính mình (tùy chọn)
+    if (req.params.id === req.user._id.toString()) {
+      return res.status(400).json({ message: 'Không thể tự xóa chính mình' });
+    }
+
+    const deleted = await User.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: 'User không tồn tại' });
+
+    res.json({ success: true, message: 'Đã xóa user' });
+  } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }
 });

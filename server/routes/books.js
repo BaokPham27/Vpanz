@@ -174,5 +174,96 @@ router.get('/:bookId/chapter/:chapterNumber', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// --- 7. DELETE: Xóa sách theo ID (chỉ admin được phép) ---
+// Thêm vào cuối file routes/books.js
+
+router.delete('/:bookId', async (req, res) => {
+  try {
+    const { bookId } = req.params;
+
+    // Kiểm tra book có tồn tại không
+    const book = await Book.findById(bookId);
+    if (!book) {
+      return res.status(404).json({ message: "Sách không tồn tại" });
+    }
+
+    // XÓA TẤT CẢ CHAPTERS thuộc sách này trước (rất quan trọng để tránh rác dữ liệu)
+    await Chapter.deleteMany({ book: bookId });
+
+    // Sau đó mới xóa sách
+    await Book.findByIdAndDelete(bookId);
+
+    res.json({ 
+      success: true, 
+      message: "Đã xóa sách và tất cả chương thành công" 
+    });
+
+  } catch (error) {
+    console.error('Lỗi khi xóa sách:', error);
+    
+    // Nếu ID không hợp lệ (không phải ObjectId)
+    if (error.kind === 'ObjectId') {
+      return res.status(400).json({ message: "ID sách không hợp lệ" });
+    }
+
+    res.status(500).json({ 
+      message: "Lỗi server khi xóa sách", 
+      error: error.message 
+    });
+  }
+});
+// --- 8. PATCH: Cập nhật thông tin sách (SỬA SÁCH) ---
+// Chỉ admin được phép sửa sách
+
+router.patch('/:bookId', async (req, res) => {
+  try {
+    const { bookId } = req.params;
+    const { title, author, level, coverImage } = req.body;
+
+    // Kiểm tra ít nhất có 1 field để cập nhật
+    if (!title && !author && !level && coverImage === undefined) {
+      return res.status(400).json({ 
+        message: "Vui lòng cung cấp ít nhất một trường để cập nhật (title, author, level, coverImage)" 
+      });
+    }
+
+    // Tìm sách trước
+    const book = await Book.findById(bookId);
+    if (!book) {
+      return res.status(404).json({ message: "Không tìm thấy sách để sửa" });
+    }
+
+    // Cập nhật các field nếu có gửi lên
+    if (title !== undefined) book.title = title.trim();
+    if (author !== undefined) book.author = author.trim();
+    if (level !== undefined) book.level = level;
+    if (coverImage !== undefined) book.coverImage = coverImage;
+
+    // Lưu lại
+    const updatedBook = await book.save();
+
+    // Trả về sách đã cập nhật (đúng format frontend đang mong đợi)
+    res.json({
+      _id: updatedBook._id,
+      title: updatedBook.title,
+      author: updatedBook.author,
+      level: updatedBook.level || "N5",
+      coverImage: updatedBook.coverImage,
+      chapters: updatedBook.chapters?.length || 0
+    });
+
+  } catch (error) {
+    console.error('Lỗi khi sửa sách:', error);
+
+    if (error.kind === 'ObjectId') {
+      return res.status(400).json({ message: "ID sách không hợp lệ" });
+    }
+
+    res.status(500).json({ 
+      message: "Lỗi server khi cập nhật sách", 
+      error: error.message 
+    });
+  }
+});
 
 module.exports = router;

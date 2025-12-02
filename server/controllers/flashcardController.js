@@ -116,6 +116,9 @@ const createFlashcard = async (req, res) => {
 // @desc    Get all flashcards for a set
 // @route   GET /api/flashcard-sets/:id/flashcards or /api/flashcards/sets/:setId/flashcards
 // @access  Private
+// @desc    Get all flashcards for a set
+// @route   GET /api/flashcards/sets/:setId/flashcards  (hoặc /flashcard-sets/:id/flashcards)
+// @access  Private (Admin + Owner)
 const getFlashcardsForSet = async (req, res) => {
   try {
     const setId = req.params.setId || req.params.id;
@@ -126,12 +129,17 @@ const getFlashcardsForSet = async (req, res) => {
       return res.status(404).json({ message: 'Flashcard set not found' });
     }
 
-    if (flashcardSet.owner.toString() !== req.user.id) {
+    // CHO PHÉP ADMIN XEM TẤT CẢ, CHỈ USER THƯỜNG MỚI BỊ KIỂM TRA OWNER
+    const isOwner = flashcardSet.owner.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
     res.json(flashcardSet.flashcards);
   } catch (err) {
+    console.error('Error in getFlashcardsForSet:', err);
     res.status(500).json({ error: err.message });
   }
 };

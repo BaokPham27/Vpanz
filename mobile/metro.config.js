@@ -1,30 +1,27 @@
-// metro.config.js – Đặt ở gốc project mobile
+// metro.config.js – FIX HOÀN TOÀN LỖI window.closed (Expo Web 2025)
 const { getDefaultConfig } = require('expo/metro-config');
 
-/** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const defaultConfig = getDefaultConfig(__dirname);
 
-// BẬT CÁC TÍNH NĂNG CẦN THIẾT
-config.resolver.unstable_enablePackageExports = true;
-config.resolver.unstable_conditionNames = ['require', 'react-native', 'development'];
+// Cấu hình cũ của bạn (giữ nguyên)
+defaultConfig.resolver.unstable_enablePackageExports = true;
+defaultConfig.resolver.unstable_conditionNames = ['require', 'react-native', 'development'];
 
-// FIX CHẾT NGƯỜI CHO autolinker + tslib (100% hiệu quả)
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  // Nếu module yêu cầu là "tslib", ép nó load đúng file
+defaultConfig.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'tslib') {
-    return {
-      filePath: require.resolve('tslib/tslib.es6.js'),
-      type: 'sourceFile',
-    };
+    return { filePath: require.resolve('tslib/tslib.es6.js'), type: 'sourceFile' };
   }
-
-  // Các alias khác nếu cần (ví dụ autolinker nếu bạn vẫn dùng)
-  // if (moduleName.startsWith('autolinker')) {
-  //   return { filePath: require.resolve('autolinker'), type: 'sourceFile' };
-  // }
-
-  // Mặc định thì để Metro xử lý bình thường
   return context.resolveRequest(context, moduleName, platform);
 };
 
-module.exports = config;
+// FIX COOP TRIỆT ĐỂ – CÁCH DUY NHẤT HOẠT ĐỘNG TRÊN EXPO WEB
+defaultConfig.server ??= {};
+defaultConfig.server.enhanceMiddleware = (middleware) => {
+  return (req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    middleware(req, res, next);
+  };
+};
+
+module.exports = defaultConfig;

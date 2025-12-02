@@ -8,7 +8,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const axios = require('axios');
 const FormData = require('form-data');
-const http = require('http');                    // THÊM DÒNG NÀY (bạn thiếu import http)
+const http = require('http');
 
 const app = express();
 dotenv.config();
@@ -21,15 +21,15 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ======================
-// FFmpeg path (tạm tắt cảnh báo nếu chưa có)
+// FFmpeg path
 // ======================
-const FFMPEG_PATH = process.env.FFMPEG_PATH || 'C:\\ffmpeg\\bin\\ffmpeg.exe'; // khuyến khích dùng .env
-if (!fs.existsSync(FFMPEG_PATH)) {
-  console.error('Không tìm thấy ffmpeg.exe tại đường dẫn:', FFMPEG_PATH);
-  console.log('   → Tính năng shadow audio sẽ không hoạt động cho đến khi cài FFmpeg');
-} else {
-  console.log('Đã tìm thấy ffmpeg.exe:', FFMPEG_PATH);
-}
+const ffmpegPath = require('ffmpeg-static');
+if (!ffmpegPath) console.warn('⚠️ FFmpeg không khả dụng từ ffmpeg-static');
+else console.log('✅ FFmpeg path từ npm:', ffmpegPath);
+
+const ffmpeg = require('fluent-ffmpeg');
+ffmpeg.setFfmpegPath(ffmpegPath);
+const FFMPEG_PATH = require('ffmpeg-static');
 
 // ======================
 // Upload folder
@@ -42,13 +42,11 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname),
 });
 const upload = multer({ storage });
-
-// ======================
-// Static folder
-// ======================
 app.use('/uploads', express.static(uploadFolder));
 
-// Health check endpoint
+// ======================
+// Health check
+// ======================
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   const dbConnected = dbState === 1;
@@ -57,13 +55,13 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     server: 'running',
     database: dbConnected ? 'connected' : 'disconnected',
-    dbState: dbState, // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+    dbState,
     timestamp: new Date().toISOString()
   });
 });
 
 // ======================
-// TTS proxy (Google TTS)
+// TTS proxy
 // ======================
 app.get('/api/jishoApi/audio', async (req, res) => {
   const text = req.query.text;
@@ -96,7 +94,7 @@ pythonProcess.stderr.on('data', (data) => console.error('>>> PYTHON ERR:', data.
 pythonProcess.on('close', (code) => console.log(`>>> PYTHON EXIT CODE: ${code}`));
 
 // ======================
-// Helper: chờ Python server sẵn sàng
+// Helper: chờ Python server
 // ======================
 async function waitPythonServerReady(timeout = 20000) {
   const start = Date.now();
@@ -108,11 +106,11 @@ async function waitPythonServerReady(timeout = 20000) {
       await new Promise(r => setTimeout(r, 500));
     }
   }
-  console.warn('Python server chưa sẵn sàng – vẫn tiếp tục chạy (có thể shadow chậm lần đầu)');
+  console.warn('Python server chưa sẵn sàng – vẫn tiếp tục chạy');
 }
 
 // ======================
-// Shadow AI: nhận file audio và câu
+// Shadow AI route
 // ======================
 app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
   if (!req.file || !req.body.text) return res.status(400).json({ error: 'Thiếu audio hoặc text' });
@@ -126,13 +124,11 @@ app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
   }
 
   const ffmpeg = spawn(FFMPEG_PATH, ['-y', '-i', audioPath, '-ac', '1', '-ar', '16000', '-f', 'wav', wavPath]);
-
   let ffmpegError = '';
   ffmpeg.stderr.on('data', (d) => ffmpegError += d.toString());
 
   ffmpeg.on('close', async (code) => {
-    fs.unlinkSync(audioPath); // xóa file gốc
-
+    fs.unlinkSync(audioPath);
     if (code !== 0) {
       console.error('FFMPEG lỗi:', ffmpegError);
       if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
@@ -141,7 +137,6 @@ app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
 
     try {
       await waitPythonServerReady();
-
       const formData = new FormData();
       formData.append('file', fs.createReadStream(wavPath));
       formData.append('text', req.body.text);
@@ -163,7 +158,7 @@ app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
 });
 
 // ======================
-// Import tất cả router
+// Import routers
 // ======================
 const shadowRouter       = require('./routes/shadowRouter');
 const chapterRoutes      = require('./routes/chapters');
@@ -171,11 +166,12 @@ const appRouter          = require('./routes/appRouter');
 const authRouter         = require('./routes/auth');
 const bookRoutes         = require('./routes/books');
 const flashcardSetRoutes = require('./routes/flashcardSets');
-const flashcardRoutes = require('./routes/flashcards');
+const flashcardRoutes    = require('./routes/flashcards');
 const userRoutes         = require('./routes/userRoutes');
 const chatRoutes         = require('./routes/chat');
+const adminRoutes = require('./routes/admin');
 
-// Gắn router
+app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/auth', authRouter);
 app.use('/api', appRouter);
@@ -187,52 +183,57 @@ app.use('/api/shadow', shadowRouter);
 app.use('/api/users', userRoutes);
 
 // ======================
-// Tạo server + Socket.IO
+// Admin debug
 // ======================
-const httpServer = http.createServer(app);                 // ĐÚNG
+const { protect, admin } = require('./middleware/authMiddleware');
+const frontendPath = path.join(__dirname, 'public');
+
+app.use('/admin', (req, res, next) => {
+  console.log('\n===== ADMIN ROUTE DEBUG =====');
+  console.log('Request URL:', req.originalUrl);
+  console.log('Authorization:', req.headers.authorization || 'No token');
+  next();
+});
+
+app.get('/admin', protect, admin, (req, res) => {
+  console.log('>>> ADMIN PAGE ACCESS');
+  console.log('User email:', req.user?.email);
+  console.log('User role:', req.user?.role);
+  res.sendFile(path.join(frontendPath, 'admin.html'));
+});
+
+app.get('/', (req, res) => {
+  console.log('\n>>> INDEX PAGE ACCESS');
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// ======================
+// Socket.IO server
+// ======================
+const httpServer = http.createServer(app);
 const { initSocket } = require('./socket');
 const io = initSocket(httpServer);
 app.set('io', io);
 
 // ======================
-// Kết nối MongoDB
+// MongoDB connection
 // ======================
 console.log('\n=== MONGODB CONNECTION ===');
 console.log('MONGO_URI:', process.env.MONGO_URI ? 'CONFIGURED' : 'NOT CONFIGURED');
 
 mongoose
   .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/vpan')
-  .then(() => {
-    console.log('MongoDB connected successfully');
-    console.log('Database name: vpan_app_db');
-    console.log('Connection state:', mongoose.connection.readyState);
-    console.log('=== CONNECTION READY ===\n');
-  })
-  .catch(err => {
-    console.error('MongoDB connection lỗi:', err.message);
-    console.log('Error code:', err.code);
-    console.log('=== CONNECTION FAILED ===\n');
-  });
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB error:', err.message));
 
-// Log connection events
-mongoose.connection.on('connected', () => {
-  console.log('🔗 Mongoose connected to MongoDB');
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️  Mongoose disconnected from MongoDB');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.log('❌ Mongoose connection error:', err.message);
-});
+mongoose.connection.on('connected', () => console.log('🔗 Mongoose connected'));
+mongoose.connection.on('disconnected', () => console.log('⚠️ Mongoose disconnected'));
+mongoose.connection.on('error', (err) => console.log('❌ Mongoose error:', err.message));
 
 // ======================
-// Khởi động server
+// Start server
 // ======================
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nServer đang chạy tại http://localhost:${PORT}`);
-  console.log(`Từ điện thoại kết nối: http://26.94.144.5:${PORT}   (thay IP máy bạn nếu khác)`);
-  console.log(`Socket.IO đã sẵn sàng – Shadow, Chat, Flashcard 100% hoạt động!\n`);
+  console.log(`\nServer running at http://localhost:${PORT}`);
 });

@@ -7,8 +7,8 @@ type User = {
   name: string;
   email: string;
   avatarURL?: string;
-  token?: string; // ← THÊM DÒNG NÀY (tùy chọn, để tương thích cũ)
-  role?: 'user' | 'teacher';
+  token?: string;
+  role?: 'user' | 'teacher' | 'admin';
 } | null;
 
 type AuthContextType = {
@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load từ storage khi app khởi động
+  // 1️⃣ Load user + token từ storage khi app khởi động
   useEffect(() => {
     (async () => {
       try {
@@ -38,11 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (storedToken && storedUser) {
           const parsedUser = JSON.parse(storedUser);
+          const userWithToken = { ...parsedUser, token: storedToken };
           setToken(storedToken);
-          setUser(parsedUser);
-
-          // QUAN TRỌNG: Gắn token vào user object để các nơi cũ vẫn dùng được (user.token)
-          setUser({ ...parsedUser, token: storedToken });
+          setUser(userWithToken);
         }
       } catch (e) {
         console.log("Lỗi load auth:", e);
@@ -52,41 +50,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = async (newToken: string, userData: any) => {
-    setToken(newToken);
+  // 2️⃣ Redirect khi đã load xong và có user
+  useEffect(() => {
+    if (!isLoading && user && token) {
+      if (user.role === "admin") {
+        router.replace("/(auth)/admin");
+      } else {
+        router.replace("/(auth)/(tabs)");
+      }
+    }
+  }, [isLoading, user, token]);
 
+  // 3️⃣ Login: chỉ lưu token + user, không redirect
+  const login = async (newToken: string, userData: any) => {
     const userWithToken = {
       ...userData,
       token: newToken,
-      avatarURL: userData.avatarURL || null,  // ← ép lại cho chắc
+      avatarURL: userData.avatarURL || null,
       role: userData.role || 'user'
     };
 
+    setToken(newToken);
     setUser(userWithToken);
 
     await AsyncStorage.setItem("token", newToken);
     await AsyncStorage.setItem("user", JSON.stringify(userWithToken));
-
-    router.replace("/(auth)/(tabs)");
   };
+
+  // 4️⃣ Cập nhật user
   const updateUser = (newUserData: any) => {
     setUser(prev => {
-      const updated = { ...prev, ...newUserData };
-
-      // QUAN TRỌNG: Luôn giữ token và các field cần thiết
-      if (token) updated.token = token;
-
-      // Lưu lại vào AsyncStorage ngay lập tức
-      AsyncStorage.setItem("user", JSON.stringify(updated)).catch(() => { });
-
+      if (!prev) return prev;
+      const updated = { ...prev, ...newUserData, token };
+      AsyncStorage.setItem("user", JSON.stringify(updated)).catch(() => {});
       return updated;
     });
   };
+
+  // 5️⃣ Logout
   const logout = async () => {
     setUser(null);
     setToken(null);
     await AsyncStorage.multiRemove(["token", "user"]);
-    router.replace("/login");
+    router.replace("/login"); // hoặc trang login của bạn
   };
 
   return (

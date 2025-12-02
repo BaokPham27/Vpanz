@@ -1,4 +1,5 @@
 // app/_layout.tsx ← TÊN PHẢI LÀ _layout.tsx (có dấu gạch dưới)
+import GoogleProvider from "@/components/GoogleProvider"; // điều chỉnh đường dẫn nếu cần
 import { AuthProvider } from '@/context/AuthContext';
 import { SocketProvider } from '@/context/SocketContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -23,17 +24,19 @@ export default function RootLayout() {
   if (!loaded) return null;
 
   return (
-    <AuthProvider>
-      <SocketProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="login" />
-          <Stack.Screen name="register" />
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" />
-        </Stack>
-      </ThemeProvider>
-      </SocketProvider>
-    </AuthProvider>
+    <GoogleProvider>
+      <AuthProvider>
+        <SocketProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="login" />
+              <Stack.Screen name="register" />
+              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+          </ThemeProvider>
+        </SocketProvider>
+      </AuthProvider>
+    </GoogleProvider>
   );
 }
