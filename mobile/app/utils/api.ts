@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 
 const HOST = '26.94.144.5:5000';
-const API_BASE = Platform.OS === 'web' ? 'http://localhost:5000' : `http://${HOST}`;
+const API_BASE = Platform.OS === 'web' ? 'https://vpanz-api.onrender.com' : `http://${HOST}`;
 
 const api = axios.create({
   baseURL: API_BASE,
