@@ -20,8 +20,8 @@ import { useAuth } from "../context/AuthContext";
 const api = axios.create({
   baseURL:
     Platform.OS === "web"
-      ? "http://localhost:5000/api/auth"
-      : "http://26.94.144.5:5000/api/auth", // ← ĐÚNG IP MÁY BẠN HIỆN TẠI
+      ? "https://vpanz-api.onrender.com/api/auth"
+      : "https://vpanz-api.onrender.com/api/auth", // ← ĐÚNG IP MÁY BẠN HIỆN TẠI
   timeout: 100000,
 });
 
