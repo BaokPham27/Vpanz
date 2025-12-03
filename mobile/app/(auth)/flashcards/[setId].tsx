@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://vpanz-api.onrender.com/api';
 
 let getItemAsync: (key: string) => Promise<string | null>;
 if (Platform.OS !== 'web') {
