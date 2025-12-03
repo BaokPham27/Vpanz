@@ -19,7 +19,7 @@ interface Topic {
 }
 
 // ĐỔI IP NÀY CHO ĐÚNG
-const BASE_URL = 'https://vpanz-api.onrender.com:5000';
+const BASE_URL = 'https://vpanz-api.onrender.com';
 
 // ⭐ ảnh linh vật
 const MASCOT = require('../../../assets/images/linhvat.png');
