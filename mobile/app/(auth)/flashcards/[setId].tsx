@@ -120,7 +120,7 @@ const FlashcardItem = ({ item, onEdit, onDelete }: { item: any; onEdit: () => vo
           {item.image && (
             <View style={styles.imageContainer}>
               <Image
-                source={{ uri: item.image.startsWith('http') ? item.image : `http://localhost:5000${item.image}` }}
+                source={{ uri: item.image.startsWith('http') ? item.image : `https://vpanz-api.onrender.com${item.image}` }}
                 style={styles.flashcardImage}
               />
               <Text style={styles.imageFormatText}>{getFileExtension(item.image)}</Text>
