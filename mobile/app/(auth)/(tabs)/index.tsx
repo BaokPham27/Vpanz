@@ -33,7 +33,7 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
   return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user.email)}` };
 };
 const { width } = Dimensions.get('window');
-const SOCKET_URL = 'http://26.94.144.5:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
+const SOCKET_URL = 'https://vpanz-api.onrender.com'; // ← ĐỔI THÀNH IP CỦA BẠN
 // Notification realtime
 
 
