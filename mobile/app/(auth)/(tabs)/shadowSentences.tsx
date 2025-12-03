@@ -27,7 +27,7 @@ interface TopicDetail {
   sentences: Sentence[];
 }
 
-const BASE_URL = 'http://26.94.144.5:5000';
+const BASE_URL = 'https://vpanz-api.onrender.com';
 const LOCAL_FRAME_URI = require('../../../assets/images/bangthongbao.png');
 const FINISH_FRAME_URI = require('../../../assets/images/banghoanthanh.png');
 
