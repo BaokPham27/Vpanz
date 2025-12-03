@@ -34,9 +34,9 @@ const BG_IMAGE =
     "https://images.unsplash.com/photo-1639580926953-1bbfdbc61591?q=80&w=1205&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
 
 const API_URL = Platform.select({
-    web: "http://localhost:5000/api/auth",
-    ios: "http://26.94.144.5:5000/api/auth",
-    android: "http://26.94.144.5:5000/api/auth",
+    web: "https://vpanz-api.onrender.com/api/auth",
+    ios: "https://vpanz-api.onrender.com/api/auth",
+    android: "https://vpanz-api.onrender.com/api/auth",
 });
 
 const FB_APP_ID = "1501472567745202";
