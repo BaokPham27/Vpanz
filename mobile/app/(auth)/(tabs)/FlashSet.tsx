@@ -19,7 +19,7 @@ if (Platform.OS !== 'web') {
 }
 
 // TODO: Replace with your actual API base URL
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://vpanz-api.onrender.com/api';
 
 const getAuthToken = async () => {
   try {
