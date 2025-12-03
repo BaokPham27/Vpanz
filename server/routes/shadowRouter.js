@@ -1,82 +1,131 @@
-// server/routes/shadowRouter.js
+// routes/shadowRouter.js – MYSQL2 + PYTHON AI HOÀN HẢO 2025
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-const { spawn } = require('child_process');
-const Shadow = require('../models/shadow');
-
 const router = express.Router();
+const path = require('path');
+const fs = require('fs').promises;
+const { spawn } = require('child_process');
+const multer = require('multer');
+const db = require('../db');
+const { protect, admin } = require('../middleware/authMiddleware');
 
-// ====== Tạo thư mục uploads/shadow (nếu chưa có) ======
-const uploadDir = path.join(__dirname, '..', 'uploads', 'shadow');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// ==================== THƯ MỤC UPLOAD ====================
+const uploadDir = path.join(__dirname, '../uploads/shadow');
 
-// ====== Multer upload cho file audio ======
-const upload = multer({
-  dest: uploadDir,
+// Tạo thư mục upload nếu chưa tồn tại
+(async () => {
+  try {
+    await fs.mkdir(uploadDir, { recursive: true });
+  } catch (err) {
+    console.error('Không thể tạo thư mục upload:', err);
+  }
+})();
+
+// ==================== MULTER CONFIG (chỉ nhận audio) ====================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `shadow-${unique}${path.extname(file.originalname)}`);
+  }
 });
 
-// ================================
-// 1. Lấy tất cả topic
-//    GET /api/shadow
-// ================================
+const fileFilter = (req, file, cb) => {
+  const allowed = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/webm'];
+  if (allowed.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Chỉ chấp nhận file âm thanh (wav, mp3, ogg, webm)'));
+  }
+};
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
+
+// ==================== 1. LẤY TẤT CẢ TOPIC ====================
 router.get('/', async (req, res) => {
   try {
-    const topics = await Shadow.find({}, 'title description');
-    res.json(topics);
+    const [rows] = await db.query(
+      `SELECT id, title, description, createdAt 
+       FROM shadow_topics 
+       ORDER BY createdAt DESC`
+    );
+
+    res.json(rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      createdAt: row.createdAt
+    })));
   } catch (err) {
-    console.error('Lỗi khi lấy danh sách topic:', err);
-    res.status(500).json({ error: 'Lỗi server' });
+    console.error('Lỗi lấy danh sách shadow topic:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 
-// ================================
-// 2. Lấy chi tiết 1 topic + tất cả câu
-//    GET /api/shadow/:id
-// ================================
+// ==================== 2. LẤY CHI TIẾT 1 TOPIC + TẤT CẢ CÂU ====================
 router.get('/:id', async (req, res) => {
-  try {
-    const topic = await Shadow.findById(req.params.id);
+  const { id } = req.params;
 
-    if (!topic) {
-      return res.status(404).json({ error: 'Không tìm thấy topic' });
+  try {
+    const [topics] = await db.query(
+      `SELECT id, title, description FROM shadow_topics WHERE id = ?`,
+      [id]
+    );
+
+    if (topics.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy topic' });
     }
 
+    const [sentences] = await db.query(
+      `SELECT id, sentenceText, translation, audioURL 
+       FROM shadow_sentences 
+       WHERE topicId = ? 
+       ORDER BY ordering ASC`,
+      [id]
+    );
+
     res.json({
-      _id: topic._id,
-      title: topic.title,
-      description: topic.description,
-      sentences: topic.sentences,
+      id: topics[0].id,
+      title: topics[0].title,
+      description: topics[0].description,
+      sentences: sentences.map(s => ({
+        id: s.id,
+        text: s.sentenceText,
+        translation: s.translation,
+        audioURL: s.audioURL
+      }))
     });
   } catch (err) {
-    console.error('Lỗi khi lấy topic:', err);
-    res.status(500).json({ error: 'Lỗi server' });
+    console.error('Lỗi lấy chi tiết topic:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 
-// ================================
-// 3. API chấm điểm thật với Python
-//    POST /api/shadow/predict
-//    body: FormData { audio: file, text: string }
-// ================================
-router.post('/predict', upload.single('audio'), (req, res) => {
-  if (!req.file || !req.body.text) {
-    return res.status(400).json({ error: 'Thiếu audio hoặc text' });
+// ==================== 3. CHẤM ĐIỂM ÂM THANH VỚI PYTHON AI ====================
+router.post('/predict', upload.single('audio'), async (req, res) => {
+  if (!req.file || !req.body.text?.trim()) {
+    if (req.file) await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ message: 'Thiếu file audio hoặc text' });
   }
 
   const audioPath = req.file.path;
-  const text = req.body.text;
+  const text = req.body.text.trim();
+  const scriptPath = path.join(__dirname, '../modelAI/shadowAI_api.py');
 
-  // ⚠️ Đường dẫn đúng tới shadowAI_api.py
-  const scriptPath = path.join(__dirname, '..', 'modelAI', 'shadowAI_api.py');
-  console.log('>>> CALL PYTHON:', scriptPath);
-  console.log('>>> audio =', audioPath);
-  console.log('>>> text  =', text);
+  try {
+    await fs.access(scriptPath);
+  } catch {
+    await fs.unlink(audioPath).catch(() => {});
+    return res.status(500).json({ message: 'Không tìm thấy file AI model (shadowAI_api.py)' });
+  }
 
-  // Python nhận 2 tham số positional: audio_path, text
+  console.log(`\nSHADOW AI CALL`);
+  console.log(`Text: ${text}`);
+  console.log(`Audio: ${audioPath}`);
+
   const py = spawn('python', [scriptPath, audioPath, text]);
 
   let stdout = '';
@@ -84,38 +133,91 @@ router.post('/predict', upload.single('audio'), (req, res) => {
 
   py.stdout.on('data', (data) => {
     stdout += data.toString();
+    process.stdout.write('PY: ' + data.toString());
   });
 
   py.stderr.on('data', (data) => {
-    const msg = data.toString();
-    stderr += msg;
-    console.error('>>> PYTHON STDERR:', msg);
+    stderr += data.toString();
+    console.error('PY ERR:', data.toString());
   });
 
-  py.on('close', (code) => {
-    // Xoá file audio sau khi xử lý
-    fs.unlink(audioPath, () => {});
-
-    console.log('>>> PYTHON EXIT CODE:', code);
+  py.on('close', async (code) => {
+    await fs.unlink(audioPath).catch(() => {});
+    console.log(`Python exit code: ${code}`);
 
     if (code !== 0) {
-      return res.status(500).json({
-        error: 'Lỗi khi xử lý AI',
-        detail: stderr || stdout,
-      });
+      return res.status(500).json({ message: 'AI xử lý thất bại', detail: stderr || 'No stderr' });
     }
 
     try {
-      const result = JSON.parse(stdout); // shadowAI_api.py phải print JSON
-      return res.json(result);
-    } catch (e) {
-      console.error('Không parse được JSON từ model:', e, 'RAW =', stdout);
-      return res.status(500).json({
-        error: 'Output model không đúng JSON',
-        raw: stdout,
+      const result = JSON.parse(stdout);
+      res.json({
+        success: true,
+        score: result.score || 0,
+        accuracy: result.accuracy || 0,
+        fluency: result.fluency || 0,
+        pronunciation: result.pronunciation || 0,
+        feedback: result.feedback || 'Tốt!',
+        words: result.words || []
       });
+    } catch (e) {
+      console.error('Không parse được JSON từ Python:', stdout);
+      res.status(500).json({ message: 'Kết quả AI không đúng định dạng', raw: stdout });
     }
   });
+
+  // Timeout 15 giây
+  setTimeout(() => {
+    if (!py.killed) {
+      py.kill();
+      fs.unlink(audioPath).catch(() => {});
+      res.status(504).json({ message: 'AI xử lý quá thời gian (timeout 15s)' });
+    }
+  }, 15000);
+});
+
+// ==================== ADMIN: TẠO TOPIC MỚI ====================
+router.post('/topics', protect, admin, async (req, res) => {
+  const { title, description, sentences } = req.body;
+
+  if (!title?.trim() || !Array.isArray(sentences) || sentences.length === 0) {
+    return res.status(400).json({ message: 'Thiếu tiêu đề hoặc danh sách câu' });
+  }
+
+  const conn = await db.getConnection();
+  await conn.beginTransaction();
+
+  try {
+    const [topicRes] = await conn.query(
+      `INSERT INTO shadow_topics (title, description) VALUES (?, ?)`,
+      [title.trim(), description || '']
+    );
+    const topicId = topicRes.insertId;
+
+    const sentenceValues = sentences.map((s, i) => [
+      topicId,
+      s.text?.trim() || '',
+      s.translation?.trim() || '',
+      s.audioURL || null,
+      i + 1
+    ]);
+
+    await conn.query(
+      `INSERT INTO shadow_sentences 
+       (topicId, sentenceText, translation, audioURL, ordering) 
+       VALUES ?`,
+      [sentenceValues]
+    );
+
+    await conn.commit();
+    res.status(201).json({ id: topicId, title, sentenceCount: sentences.length });
+  } catch (err) {
+    await conn.rollback();
+    console.error('Lỗi tạo shadow topic:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  } finally {
+    conn.release();
+  }
 });
 
 module.exports = router;

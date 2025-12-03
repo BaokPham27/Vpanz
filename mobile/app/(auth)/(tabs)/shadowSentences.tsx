@@ -4,16 +4,16 @@ import { Audio } from 'expo-av';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 interface Sentence {
@@ -27,7 +27,7 @@ interface TopicDetail {
   sentences: Sentence[];
 }
 
-const BASE_URL = 'http://10.249.2.233:5000';
+const BASE_URL = 'http://26.94.144.5:5000';
 const LOCAL_FRAME_URI = require('../../../assets/images/bangthongbao.png');
 const FINISH_FRAME_URI = require('../../../assets/images/banghoanthanh.png');
 

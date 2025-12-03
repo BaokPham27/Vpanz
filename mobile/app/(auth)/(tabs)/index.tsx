@@ -33,7 +33,7 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
   return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user.email)}` };
 };
 const { width } = Dimensions.get('window');
-const SOCKET_URL = 'http://10.249.2.233:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
+const SOCKET_URL = 'http://26.94.144.5:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
 // Notification realtime
 
 
@@ -549,12 +549,7 @@ useEffect(() => {
             ))}
           </View>
 
-          <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
-            <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>Flashcards bạn có thể làm</Text>
-            {flashcards.map(f => (
-              <Text key={f.id} style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>• {f.title}</Text>
-            ))}
-          </View>
+       
 
           <View style={styles.footer}>
             <Text style={[styles.footerText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>

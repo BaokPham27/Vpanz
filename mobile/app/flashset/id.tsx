@@ -1,18 +1,18 @@
-import "@/services/config"
-import React, { useState, useEffect, useCallback } from 'react';
+import "@/services/config";
+import { API_BASE_URL } from '@/services/config';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { getItemAsync } from 'expo-secure-store';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
   ActivityIndicator,
-  TouchableOpacity,
-  ScrollView,
   Alert,
   RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { getItemAsync } from 'expo-secure-store';
-import { API_BASE_URL } from '@/services/config';
 import { styles } from './id.style'; // I'll create this file next
 
 const getAuthToken = async () => {
@@ -51,8 +51,7 @@ export default function FlashSetDetailScreen() {
         throw new Error(data.message || 'Failed to fetch set details');
       }
     } catch (err) {
-      setError(err.message);
-      Alert.alert('Error', err.message);
+
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -95,7 +94,7 @@ export default function FlashSetDetailScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
-          {setDetails?.title || 'Flashcard Set'}
+
         </Text>
         <TouchableOpacity onPress={() => { /* Edit action */ }} style={styles.editButton}>
           <Ionicons name="ellipsis-horizontal" size={24} color="#111827" />

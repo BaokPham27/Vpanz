@@ -2,14 +2,14 @@ import axios from 'axios';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    FlatList,
+    Image,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
 interface Topic {
@@ -19,7 +19,7 @@ interface Topic {
 }
 
 // ĐỔI IP NÀY CHO ĐÚNG
-const BASE_URL = 'http://10.249.2.233:5000';
+const BASE_URL = 'http://26.94.144.5:5000';
 
 // ⭐ ảnh linh vật
 const MASCOT = require('../../../assets/images/linhvat.png');

@@ -4,19 +4,19 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Image,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Animated,
+    Image,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 const PAGE_TURN_SOUND = require('../../../../../assets/sounds/page-turn.mp3');
-const API_BASE = 'http://10.249.2.233:5000';
+const API_BASE = 'http://26.94.144.5:5000';
 
 export default function EhonReader() {
   const params = useLocalSearchParams();

@@ -1,67 +1,27 @@
-// socket.js – CHAT + NOTIFICATION REALTIME – PHIÊN BẢN HOÀN HẢO
+// socket.js – MySQL2 + REALTIME CHAT & NOTIFICATION 2025
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
-const Chat = require('./models/Chat');
-const Message = require('./models/Message');
-const Notification = require('./models/Notification'); // notifications
-const uaParser = require('ua-parser-js'); // optional, nếu cần phân tích UA
 
-// ==================== HỖ TRỢ FORMAT TIME ====================
 function formatTimeAgo(date) {
-  const now = new Date();
-  const diff = (now - date) / 1000;
+  const diff = (Date.now() - new Date(date)) / 1000;
   if (diff < 60) return 'Vừa xong';
   if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
-  if (diff < 172800) return 'Hôm qua';
   return `${Math.floor(diff / 86400)} ngày trước`;
 }
 
-// ==================== SEND NOTIFICATION ====================
-async function sendNotification(io, userId, { title, message, type = 'system', data = {} }) {
-  try {
-    const notif = await Notification.create({
-      userId,
-      title,
-      message,
-      type,
-      data
-    });
+function initSocket(httpServer, db) {
+  const io = new Server(httpServer, { cors: { origin: "*" } });
+  const onlineUsers = new Map();
 
-    const payload = {
-      _id: notif._id,
-      title,
-      message,
-      type,
-      data,
-      read: false,
-      time: formatTimeAgo(notif.createdAt)
-    };
-
-    // Gửi realtime nếu user online
-    io.to(userId.toString()).emit('newNotification', payload);
-  } catch (err) {
-    console.error('Lỗi gửi thông báo:', err);
-  }
-}
-
-// ==================== INIT SOCKET ====================
-function initSocket(httpServer) {
-  const io = new Server(httpServer, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
-  });
-
-  const onlineUsers = new Map(); // userId → socket
-
-  // Middleware xác thực token
   io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    if (!token) return next(new Error('Authentication error'));
+    if (!token) return next(new Error('No token'));
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'vpan_secret_2025');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.user = decoded;
       next();
-    } catch (err) {
+    } catch {
       next(new Error('Invalid token'));
     }
   });
@@ -69,149 +29,120 @@ function initSocket(httpServer) {
   io.on('connection', async (socket) => {
     const userId = socket.user.id.toString();
     console.log('User connected:', userId);
-
     onlineUsers.set(userId, socket);
-    socket.join(userId); // room riêng cho notification
+    socket.join(userId);
 
-    // ==================== JOIN TẤT CẢ CHAT ROOM ====================
-    const chats = await Chat.find({ participants: userId }).select('_id');
-    chats.forEach(chat => socket.join(chat._id.toString()));
+    // Load recent chats
+    const loadRecentChats = async () => {
+      try {
+        const [chats] = await db.query(`
+          SELECT c.id, c.updatedAt, m.message AS lastMsg, m.createdAt AS msgTime,
+                 u.id AS otherId, u.name, u.email, u.avatarURL
+          FROM chats c
+          JOIN chat_participants cp ON c.id = cp.chatId
+          LEFT JOIN chat_messages m ON c.lastMessageId = m.id
+          LEFT JOIN users u ON u.id = (
+            SELECT userId FROM chat_participants 
+            WHERE chatId = c.id AND userId != ? LIMIT 1
+          )
+          WHERE cp.userId = ?
+          ORDER BY c.updatedAt DESC LIMIT 20
+        `, [userId, userId]);
 
-    // ==================== SEND ONLINE USERS ====================
-    io.emit('onlineUsers', Array.from(onlineUsers.keys()));
-
-// ==================== RECENT CHATS – ĐÃ FIX LỖI 100% ====================
-const sendRecentChats = async () => {
-  try {
-    const chats = await Chat.find({ participants: userId })
-      .populate('participants', 'name email avatarURL')
-      .sort({ updatedAt: -1 })
-      .limit(20)
-      .lean(); // QUAN TRỌNG: dùng .lean() để tránh lỗi proxy
-
-    const formatted = chats
-      .filter(chat => chat && chat.participants && chat.participants.length > 0) // lọc chat hỏng
-      .map(chat => {
-        // Tìm người còn lại (trong 1-1 chat)
-        const other = chat.participants.find(p =>
-          p && p._id && p._id.toString() !== userId
-        );
-
-        // Nếu không tìm thấy (chat nhóm hoặc lỗi) → lấy người đầu tiên
-        const fallbackUser = chat.participants.find(p => p && p._id) || {};
-
-        const targetUser = other || fallbackUser;
-
-        return {
-          chatId: chat._id.toString(),
+        const formatted = chats.map(chat => ({
+          chatId: chat.id,
           user: {
-            id: targetUser._id?.toString() || 'unknown',
-            name: targetUser.name || 'Người dùng đã xóa',
-            email: targetUser.email || '',
-            avatarURL: targetUser.avatarURL && targetUser.avatarURL.trim() !== ''
-              ? targetUser.avatarURL
-              : null
+            id: chat.otherId || userId,
+            name: chat.name || 'Người dùng đã xóa',
+            email: chat.email || '',
+            avatarURL: chat.avatarURL || null
           },
-          preview: chat.lastMessage?.message || 'Đã gửi một tin nhắn',
-          lastMessageAt: chat.lastMessage?.createdAt || chat.updatedAt || new Date()
-        };
-      })
-      // LOẠI BỎ chat của chính mình (self-chat)
-      .filter(item => item.user.id !== userId);
+          preview: chat.lastMsg || 'Đã gửi tin nhắn',
+          lastMessageAt: chat.msgTime || chat.updatedAt
+        }));
 
-    socket.emit('recentChats', formatted);
-  } catch (err) {
-    console.error('Lỗi load recent chats:', err);
-    socket.emit('recentChats', []); // gửi mảng rỗng nếu lỗi
-  }
-};
+        socket.emit('recentChats', formatted);
+      } catch (err) {
+        console.error('Lỗi load recent chats:', err);
+        socket.emit('recentChats', []);
+      }
+    };
 
-    sendRecentChats();
-    socket.on('getRecentChats', sendRecentChats);
+    loadRecentChats();
+    socket.on('getRecentChats', loadRecentChats);
 
-    // ==================== SEND MESSAGE ====================
+    // Send message
     socket.on('sendMessage', async ({ receiverId, message }) => {
       if (!message?.trim()) return;
+
       try {
-        // 1. Tìm hoặc tạo chat
-        let chat = await Chat.findOne({ participants: { $all: [userId, receiverId] } });
-        if (!chat) chat = await Chat.create({ participants: [userId, receiverId] });
+        const conn = await db.getConnection();
+        await conn.beginTransaction();
 
-        chat.lastMessage = { message: message.trim(), createdAt: new Date() };
-        chat.updatedAt = new Date();
-        await chat.save();
+        // Tìm hoặc tạo chat
+        const [existing] = await conn.query(
+          'SELECT chatId FROM chat_participants WHERE userId IN (?, ?) GROUP BY chatId HAVING COUNT(DISTINCT userId) = 2',
+          [userId, receiverId]
+        );
 
-        // 2. Tạo message
-        const newMsg = await Message.create({
-          chatId: chat._id,
-          sender: userId,
-          message: message.trim()
-        });
+        let chatId;
+        if (existing.length > 0) {
+          chatId = existing[0].chatId;
+        } else {
+          const [res] = await conn.query('INSERT INTO chats (type) VALUES ("private")');
+          chatId = res.insertId;
+          await conn.query('INSERT INTO chat_participants (chatId, userId) VALUES (?, ?), (?, ?)',
+            [chatId, userId, chatId, receiverId]
+          );
+        }
 
-        const populated = await Message.findById(newMsg._id)
-          .populate('sender', 'name email')
-          .lean();
+        // Tạo tin nhắn
+        const [msgRes] = await conn.query(
+          'INSERT INTO chat_messages (chatId, senderId, message) VALUES (?, ?, ?)',
+          [chatId, userId, message.trim()]
+        );
+
+        await conn.query('UPDATE chats SET lastMessageId = ?, updatedAt = NOW() WHERE id = ?', [msgRes.insertId, chatId]);
+        await conn.commit();
+        conn.release();
 
         const payload = {
-          _id: populated._id.toString(),
-          message: populated.message,
-          createdAt: populated.createdAt,
-          sender: {
-            id: populated.sender._id.toString(),
-            name: populated.sender.name || 'User',
-            email: populated.sender.email
-          },
-          chatId: chat._id.toString()
+          _id: msgRes.insertId,
+          chatId,
+          message: message.trim(),
+          createdAt: new Date(),
+          sender: { id: userId }
         };
 
-        // Emit cho cả room chat
-        io.to(chat._id.toString()).emit('newMessage', payload);
-
-        // Update recent chats cho cả 2 user
-        [userId, receiverId].forEach(id => {
-          const sock = onlineUsers.get(id);
-          if (sock) sock.emit('getRecentChats');
-        });
+        io.to(chatId.toString()).emit('newMessage', payload);
+        [userId, receiverId].forEach(id => onlineUsers.get(id)?.emit('getRecentChats'));
 
       } catch (err) {
         console.error('Lỗi gửi tin nhắn:', err);
       }
     });
 
-    // ==================== NOTIFICATIONS ====================
-    socket.on('getNotifications', async () => {
-      try {
-        const notifs = await Notification.find({ userId })
-          .sort({ createdAt: -1 })
-          .limit(50)
-          .lean();
-
-        const formatted = notifs.map(n => ({
-          _id: n._id,
-          title: n.title,
-          message: n.message,
-          type: n.type,
-          data: n.data,
-          read: n.read,
-          time: formatTimeAgo(n.createdAt)
-        }));
-
-        socket.emit('notificationsList', formatted);
-      } catch (err) {
-        console.error('Lỗi load notifications:', err);
-      }
-    });
-
-    // ==================== DISCONNECT ====================
     socket.on('disconnect', () => {
-      console.log('User disconnected:', userId);
       onlineUsers.delete(userId);
       io.emit('onlineUsers', Array.from(onlineUsers.keys()));
     });
   });
 
-  // Export function sendNotification để dùng ở route khác
-  io.sendNotification = sendNotification;
+  // Hàm gửi thông báo
+  io.sendNotification = async (userId, { title, message, type = 'info', data = {} }) => {
+    try {
+      await db.query(
+        'INSERT INTO notifications (userId, title, message, type, data) VALUES (?, ?, ?, ?, ?)',
+        [userId, title, message, type, JSON.stringify(data)]
+      );
+      io.to(userId.toString()).emit('newNotification', {
+        title, message, type, data, read: false, time: 'Vừa xong'
+      });
+    } catch (err) {
+      console.error('Lỗi gửi thông báo:', err);
+    }
+  };
+
   return io;
 }
 

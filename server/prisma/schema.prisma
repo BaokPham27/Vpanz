@@ -1,0 +1,78 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 9 bảng chính của Vpan (đã tối ưu + đầy đủ quan hệ)
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  avatar        String?   @default("https://i.imgur.com/removed.png")
+  role          String    @default("user") // user | admin
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  flashcards    Flashcard[]
+  books         Book[]
+  progress      Progress[]
+  notifications Notification[]
+}
+
+model Flashcard {
+  id        String   @id @default(cuid())
+  front     String   @db.Text
+  back      String   @db.Text
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Book {
+  id        String    @id @default(cuid())
+  title     String
+  author    String?
+  cover     String?
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapters  Chapter[]
+  createdAt DateTime  @default(now())
+}
+
+model Chapter {
+  id        String @id @default(cuid())
+  title     String
+  content   String @db.LongText
+  bookId    String
+  book      Book   @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  order     Int    @default(0)
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String   @db.Text
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Progress {
+  id         String  @id @default(cuid())
+  userId     String
+  bookId     String
+  chapterId  String?
+  percentage Float   @default(0)
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}

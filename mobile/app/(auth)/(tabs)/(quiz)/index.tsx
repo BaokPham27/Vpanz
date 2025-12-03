@@ -34,7 +34,7 @@ export default function QuizHome() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/flashcard-sets');
+        const res = await api.get('/api/flashcard-sets/my');
         const allSets: SetType[] = res.data || [];
 
         // Chuẩn hoá user id (hỗ trợ cả id và _id)

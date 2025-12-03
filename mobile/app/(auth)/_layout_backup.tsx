@@ -11,7 +11,7 @@ export default function AuthLayout() {
   }
 
   if (!user) {
-    return <Redirect href="/login" />;
+    return <Redirect href="/AuthScreen" />;
   }
 
   return <Slot />; // Cho phép vào (tabs)

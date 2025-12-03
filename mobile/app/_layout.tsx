@@ -8,9 +8,16 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-
+import { NativeModules } from 'react-native';
+const { DevSettings } = NativeModules;
 SplashScreen.preventAutoHideAsync();
 
+if (__DEV__) {
+  DevSettings?.setIsDebuggingRemotely?.(false);   // tắt Remote JS Debugging
+  DevSettings?.setProfilingEnabled?.(false);
+  // DÒNG QUAN TRỌNG NHẤT: TẮT DEV MENU
+  DevSettings?.setIsDevMenuEnabled?.(false);     // ← XÓA THANH ĐEN ĐEN
+}
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({

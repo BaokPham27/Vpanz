@@ -212,7 +212,7 @@ export default function NotFoundScreen() {
             <TouchableOpacity style={[styles.btn, { backgroundColor: "#ef4444" }]} onPress={clear}>
               <Text style={styles.btnText}>Clear</Text>
             </TouchableOpacity>
-            <Link href="/login" style={[styles.btn, { backgroundColor: "#3b82f6" }]}>
+            <Link href="/AuthScreen" style={[styles.btn, { backgroundColor: "#3b82f6" }]}>
               <Text style={styles.btnText}>Home</Text>
             </Link>
           </View>

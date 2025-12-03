@@ -4,17 +4,17 @@ import { FontAwesome5, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  Image,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Dimensions,
+    Image,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from "react-native";
 
 // Component tái sử dụng (giả sử bạn đã tách ra folder components)
@@ -25,7 +25,7 @@ import StatsRow from "@/components/StatsRow";
 
 const { width } = Dimensions.get("window");
 const SIDEBAR_WIDTH = 280;
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://10.249.2.233:5000/api";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://26.94.144.5:5000/api";
 
 // ==================== INTERFACES ====================
 interface Book {

@@ -1,32 +1,34 @@
-// routes/userRoutes.js – FILE DUY NHẤT CHO USER, ĐÃ GỘP + HOÀN HẢN
+// routes/userRoutes.js – MYSQL2 HOÀN HẢO 2025
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User');
-const { protect: auth } = require('../middleware/authMiddleware'); // ← GIỮ NGUYÊN, ĐANG CHẠY TỐT
+const db = require('../db'); // mysql2/promise
+const bcrypt = require('bcryptjs');
+const { protect, admin } = require('../middleware/authMiddleware');
 
-// 1. TÌM KIẾM NGƯỜI DÙNG + LẤY DANH SÁCH (giữ nguyên code bạn đang dùng – rất tốt!)
-router.get('/search', auth, async (req, res) => {
+// ==================== 1. TÌM KIẾM NGƯỜI DÙNG ====================
+router.get('/search', protect, async (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  const limit = q ? 30 : 100;
+
   try {
-    const q = (req.query.q || '').toString().trim();
+    const whereClause = q
+      ? `WHERE (u.name LIKE ? OR u.email LIKE ?) AND u.id != ?`
+      : `WHERE u.id != ?`;
 
-    const searchQuery = q
-      ? {
-          $or: [
-            { name: { $regex: q, $options: 'i' } },
-            { email: { $regex: q, $options: 'i' } }
-          ],
-          _id: { $ne: req.user._id }
-        }
-      : { _id: { $ne: req.user._id } };
+    const searchParam = q ? `%${q}%` : null;
+    const params = q ? [searchParam, searchParam, req.user.id] : [req.user.id];
 
-    const users = await User.find(searchQuery)
-      .select('name email avatarURL role _id')  // ← THÊM "role" VÀO ĐÂY!!!
-      .sort({ name: 1 })
-      .limit(q ? 30 : 100)
-      .lean();
+    const [users] = await db.query(
+      `SELECT u.id, u.name, u.email, u.avatarURL, u.role 
+       FROM users u
+       ${whereClause}
+       ORDER BY u.name ASC
+       LIMIT ?`,
+      [...params, limit]
+    );
 
     const formatted = users.map(u => ({
-      id: u._id.toString(),
+      id: u.id,
       name: u.name,
       email: u.email,
       avatarURL: u.avatarURL && u.avatarURL.trim() !== '' ? u.avatarURL : null,
@@ -36,117 +38,158 @@ router.get('/search', auth, async (req, res) => {
     res.json(formatted);
   } catch (err) {
     console.error('Lỗi tìm kiếm người dùng:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 
-// 2. THÊM MỚI: CẬP NHẬT HỒ SƠ (TÊN + AVATAR)
-router.patch('/me', auth, async (req, res) => {
-  try {
-    const { name, avatarURL, password, role } = req.body;
-    const updates = {};
+// ==================== 2. CẬP NHẬT HỒ SƠ CỦA CHÍNH MÌNH ====================
+router.patch('/me', protect, async (req, res) => {
+  const { name, avatarURL, password, role } = req.body;
+  const updates = [];
+  const values = [];
 
-    if (name !== undefined && name.trim()) updates.name = name.trim();
-    if (avatarURL !== undefined) updates.avatarURL = avatarURL || null;
-    if (role && ['student', 'teacher'].includes(role)) updates.role = role;
+  if (name !== undefined && name.trim()) {
+    updates.push('name = ?');
+    values.push(name.trim());
+  }
+  if (avatarURL !== undefined) {
+    updates.push('avatarURL = ?');
+    values.push(avatarURL || null);
+  }
+  if (role && ['student', 'teacher'].includes(role)) {
+    updates.push('role = ?');
+    values.push(role);
+  }
 
-    // Đổi mật khẩu
-    if (password && password.trim().length >= 6) {
-      const bcrypt = require('bcryptjs');
-      updates.password = await bcrypt.hash(password.trim(), 10);
-    } else if (password && password.trim().length < 6) {
+  // Đổi mật khẩu
+  if (password) {
+    if (password.trim().length < 6) {
       return res.status(400).json({ message: 'Mật khẩu phải từ 6 ký tự' });
     }
+    const hashed = await bcrypt.hash(password.trim(), 10);
+    updates.push('password = ?');
+    values.push(hashed);
+  }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ message: 'Không có dữ liệu để cập nhật' });
-    }
+  if (updates.length === 0) {
+    return res.status(400).json({ message: 'Không có dữ liệu để cập nhật' });
+  }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { ...updates, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    ).select('-password');
+  values.push(req.user.id);
 
-    if (!user) return res.status(404).json({ message: 'Không tìm thấy user' });
+  try {
+    await db.query(
+      `UPDATE users SET ${updates.join(', ')}, updatedAt = NOW() WHERE id = ?`,
+      values
+    );
 
+    const [rows] = await db.query(
+      `SELECT id, name, email, avatarURL, role FROM users WHERE id = ?`,
+      [req.user.id]
+    );
+
+    const user = rows[0];
     res.json({
       success: true,
       user: {
-        id: user._id.toString(),
+        id: user.id,
         name: user.name,
         email: user.email,
         avatarURL: user.avatarURL || null,
-        role: user.role,
+        role: user.role
       }
     });
   } catch (err) {
     console.error('Lỗi cập nhật profile:', err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
-// ==== ADMIN ONLY: SỬA USER KHÁC ====
-router.patch('/:id', auth, async (req, res) => {
+
+// ==================== 3. ADMIN: SỬA USER KHÁC ====================
+router.patch('/:id', protect, admin, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, password } = req.body;
+  const updates = [];
+  const values = [];
+
+  if (name !== undefined) { updates.push('name = ?'); values.push(name?.trim() || null); }
+  if (email !== undefined) { updates.push('email = ?'); values.push(email?.toLowerCase().trim() || null); }
+  if (role && ['student', 'teacher', 'admin'].includes(role)) {
+    updates.push('role = ?');
+    values.push(role);
+  }
+
+  if (password && password.length >= 6) {
+    const hashed = await bcrypt.hash(password, 10);
+    updates.push('password = ?');
+    values.push(hashed);
+  } else if (password && password.length < 6) {
+    return res.status(400).json({ message: 'Mật khẩu phải từ 6 ký tự' });
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ message: 'Không có dữ liệu để cập nhật' });
+  }
+
+  values.push(id);
+
   try {
-    // Chỉ admin mới được sửa user khác
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Chỉ admin mới được phép' });
+    const [result] = await db.query(
+      `UPDATE users SET ${updates.join(', ')}, updatedAt = NOW() WHERE id = ?`,
+      values
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'User không tồn tại' });
     }
 
-    const { name, email, role, password } = req.body;
-    const updates = {};
+    const [rows] = await db.query(
+      `SELECT id, name, email, avatarURL, role FROM users WHERE id = ?`,
+      [id]
+    );
 
-    if (name) updates.name = name;
-    if (email) updates.email = email;
-    if (role && ['student', 'teacher', 'admin'].includes(role)) updates.role = role;
-
-    if (password && password.length >= 6) {
-      const bcrypt = require('bcryptjs');
-      updates.password = await bcrypt.hash(password, 10);
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      req.params.id,
-      updates,
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    if (!updatedUser) return res.status(404).json({ message: 'User không tồn tại' });
-
+    const user = rows[0];
     res.json({
       success: true,
       user: {
-        id: updatedUser._id.toString(),
-        name: updatedUser.name,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        avatarURL: updatedUser.avatarURL || null
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarURL: user.avatarURL || null,
+        role: user.role
       }
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Lỗi admin sửa user:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 
-// ==== ADMIN ONLY: XÓA USER ====
-router.delete('/:id', auth, async (req, res) => {
+// ==================== 4. ADMIN: XÓA USER ====================
+router.delete('/:id', protect, admin, async (req, res) => {
+  const { id } = req.params;
+
+  if (id === req.user.id.toString()) {
+    return res.status(400).json({ message: 'Không thể tự xóa chính mình' });
+  }
+
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Chỉ admin mới được phép' });
+    const [result] = await db.query('DELETE FROM users WHERE id = ?', [id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'User không tồn tại' });
     }
 
-    // Không cho xóa chính mình (tùy chọn)
-    if (req.params.id === req.user._id.toString()) {
-      return res.status(400).json({ message: 'Không thể tự xóa chính mình' });
-    }
+    // Xóa dữ liệu liên quan (nếu cần)
+    await Promise.all([
+      db.query('DELETE FROM flashcard_sets WHERE ownerId = ?', [id]),
+      db.query('DELETE FROM reading_progress WHERE userId = ?', [id]),
+      db.query('DELETE FROM notifications WHERE userId = ?', [id]),
+    ]);
 
-    const deleted = await User.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: 'User không tồn tại' });
-
-    res.json({ success: true, message: 'Đã xóa user' });
+    res.json({ success: true, message: 'Đã xóa user và dữ liệu liên quan' });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Lỗi xóa user:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 

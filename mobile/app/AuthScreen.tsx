@@ -35,8 +35,8 @@ const BG_IMAGE =
 
 const API_URL = Platform.select({
     web: "http://localhost:5000/api/auth",
-    ios: "http://10.249.2.233:5000/api/auth",
-    android: "http://10.249.2.233:5000/api/auth",
+    ios: "http://26.94.144.5:5000/api/auth",
+    android: "http://26.94.144.5:5000/api/auth",
 });
 
 const FB_APP_ID = "1501472567745202";
@@ -58,10 +58,11 @@ export default function AuthScreen() {
         onSuccess: async (response) => {
             try {
                 setLoading(true);
+                // gửi access_token về backend
                 const res = await axios.post(`${API_URL}/google-login`, {
                     token: response.access_token,
                 });
-                await login(res.data.token, res.data.user); // Chỉ login, không redirect
+                await login(res.data.token, res.data.user);
             } catch (err: any) {
                 Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập thất bại");
             } finally {
@@ -70,6 +71,7 @@ export default function AuthScreen() {
         },
         onError: () => Alert.alert("Hủy", "Đăng nhập Google bị hủy"),
     });
+
 
     // FACEBOOK LOGIN
     const redirectUri = window.location.origin;

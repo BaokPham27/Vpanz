@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...userData,
       token: newToken,
       avatarURL: userData.avatarURL || null,
-      role: userData.role || 'user'
+      role: userData.role || 'student'
     };
 
     setToken(newToken);
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     await AsyncStorage.multiRemove(["token", "user"]);
-    router.replace("/login"); // hoặc trang login của bạn
+    router.replace("/AuthScreen"); // hoặc trang login của bạn
   };
 
   return (

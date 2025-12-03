@@ -2,22 +2,22 @@ import axios from "axios";
 import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 const API_URL = 
   Platform.OS === "web" 
     ? "http://localhost:5000/api/auth"
-    : "http://10.249.2.233/api/auth";
+    : "http://26.94.144.5/api/auth";
 
 export default function RegisterScreen() {
   const [name, setName] = useState("");

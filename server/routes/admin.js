@@ -1,61 +1,55 @@
 // routes/admin.js
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User');
-const Book = require('../models/Book');
-const FlashcardSet = require('../models/FlashcardSet');
-const Notification = require('../models/Notification');
-
-// IMPORT ĐÚNG TÊN MIDDLEWARE (QUAN TRỌNG NHẤT!)
-const { protect, admin } = require('../middleware/authMiddleware');  // Đảm bảo file tên là auth.js
+const db = require('../db'); // mysql2/promise connection của bạn
+const { protect, admin } = require('../middleware/authMiddleware');
 
 // ==================== THỐNG KÊ DASHBOARD ====================
 router.get('/stats', protect, admin, async (req, res) => {
   try {
-    const days = parseInt(req.query.days) || 30; // Hỗ trợ 7, 14, 30 ngày
+    const days = Math.max(1, parseInt(req.query.days) || 30);
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days + 1);
 
-    // 1. Tổng số liệu
-    const [totalUsers, totalBooks] = await Promise.all([
-      User.countDocuments(),
-      Book.countDocuments(),
-    ]);
+    // Format ngày cho SQL
+    const formatDate = (date) => date.toISOString().slice(0, 10);
+    const startStr = formatDate(startDate);
+    const endStr = formatDate(endDate);
 
-    // Tổng flashcard (dùng unwind như bạn đang làm)
-    const flashcardAgg = await FlashcardSet.aggregate([
-      { $unwind: { path: '$flashcards', preserveNullAndEmptyArrays: true } },
-      { $count: 'total' }
-    ]);
-    const totalFlashcards = flashcardAgg[0]?.total || 0;
+    const [rows] = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM users) AS totalUsers,
+        (SELECT COUNT(*) FROM books) AS totalBooks,
+        (SELECT COUNT(*) FROM flashcard_sets) AS totalSets,
+        (SELECT COALESCE(SUM(JSON_LENGTH(flashcards)), 0) FROM flashcard_sets) AS totalFlashcards
+    `);
 
-    // 2. Người dùng mới theo ngày
-    const userGrowthRaw = await User.aggregate([
-      { $match: { createdAt: { $gte: startDate } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%m-%d', date: '$createdAt' } },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    const { totalUsers, totalBooks, totalSets, totalFlashcards } = rows[0];
 
-    // 3. Flashcard được tạo theo ngày (DỮ LIỆU THẬT 100%)
-    const flashcardCreationRaw = await FlashcardSet.aggregate([
-      { $match: { createdAt: { $gte: startDate } } },
-      { $unwind: '$flashcards' },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%m-%d', date: '$createdAt' } }, // Dùng createdAt của Set
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    // Người dùng mới theo ngày
+    const [userGrowth] = await db.query(`
+      SELECT 
+        DATE_FORMAT(createdAt, '%m-%d') AS date,
+        COUNT(*) AS count
+      FROM users 
+      WHERE createdAt >= ? AND createdAt <= ?
+      GROUP BY DATE(createdAt)
+      ORDER BY DATE(createdAt) ASC
+    `, [startDate, endDate]);
 
-    // Tạo mảng đầy đủ các ngày (không bỏ sót)
+    // Flashcard được tạo theo ngày (dựa vào createdAt của Set)
+    const [flashcardGrowth] = await db.query(`
+      SELECT 
+        DATE_FORMAT(fs.createdAt, '%m-%d') AS date,
+        COALESCE(SUM(JSON_LENGTH(fs.flashcards)), 0) AS count
+      FROM flashcard_sets fs
+      WHERE fs.createdAt >= ? AND fs.createdAt <= ?
+      GROUP BY DATE(fs.createdAt)
+      ORDER BY DATE(fs.createdAt) ASC
+    `, [startDate, endDate]);
+
+    // Tạo mảng đầy đủ các ngày
     const labels = [];
     const userData = [];
     const flashcardData = [];
@@ -64,45 +58,46 @@ router.get('/stats', protect, admin, async (req, res) => {
       const d = new Date();
       d.setDate(endDate.getDate() - i);
       const label = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
       labels.push(label);
 
-      // Người dùng mới
-      const userDay = userGrowthRaw.find(g => g._id === label);
-      userData.push(userDay?.count || 0);
+      const u = userGrowth.find(x => x.date === label);
+      userData.push(u?.count || 0);
 
-      // Flashcard được tạo
-      const flashDay = flashcardCreationRaw.find(g => g._id === label);
-      flashcardData.push(flashDay?.count || 0);
+      const f = flashcardGrowth.find(x => x.date === label);
+      flashcardData.push(Number(f?.count) || 0);
     }
 
     res.json({
-      totalBooks,
-      totalFlashcards,
       totalUsers,
+      totalBooks,
+      totalFlashcardSets: totalSets,
+      totalFlashcards,
       chartData: {
         labels,
         datasets: [
-          { data: userData, label: 'Người dùng mới' },
-          { data: flashcardData, label: 'Flashcard được tạo' } // ← DỮ LIỆU THẬT!
+          { label: 'Người dùng mới', data: userData },
+          { label: 'Flashcard được tạo', data: flashcardData }
         ]
       }
     });
+
   } catch (err) {
-    console.error('Stats error:', err);
+    console.error('Admin stats error:', err);
     res.status(500).json({ message: 'Lỗi server' });
   }
 });
+
 // ==================== LẤY THÔNG BÁO HỆ THỐNG ====================
 router.get('/notifications', protect, admin, async (req, res) => {
   try {
-    const systemNotifs = await Notification.find({ type: 'system' })
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .select('title message createdAt')
-      .lean();
-
-    res.json(systemNotifs);
+    const [rows] = await db.query(`
+      SELECT title, message, createdAt 
+      FROM notifications 
+      WHERE type = 'system' 
+      ORDER BY createdAt DESC 
+      LIMIT 50
+    `);
+    res.json(rows);
   } catch (err) {
     console.error('Lỗi lấy thông báo:', err);
     res.status(500).json({ message: 'Lỗi server' });
@@ -112,110 +107,115 @@ router.get('/notifications', protect, admin, async (req, res) => {
 // ==================== GỬI THÔNG BÁO HỆ THỐNG ====================
 router.post('/notifications', protect, admin, async (req, res) => {
   const { title, message } = req.body;
-
   if (!title?.trim() || !message?.trim()) {
     return res.status(400).json({ message: 'Thiếu tiêu đề hoặc nội dung' });
   }
 
+  const conn = await db.getConnection();
+  await conn.beginTransaction();
+
   try {
-    const users = await User.find().select('_id');
-    const userIds = users.map(u => u._id);
+    const [users] = await conn.query(`SELECT id FROM users`);
+    const values = users.map(u => [u.id, title.trim(), message.trim(), 'system', false, JSON.stringify({ sentByAdmin: true })]);
 
-    const notifications = userIds.map(userId => ({
-      userId,
-      title: title.trim(),
-      message: message.trim(),
-      type: 'system',
-      read: false,
-      data: { sentByAdmin: true }
-    }));
+    if (values.length > 0) {
+      await conn.query(`
+        INSERT INTO notifications (userId, title, message, type, read, data)
+        VALUES ?
+      `, [values]);
+    }
 
-    await Notification.insertMany(notifications);
-
+    await conn.commit();
     res.status(201).json({
       success: true,
+      totalSent: users.length,
       title: title.trim(),
-      message: message.trim(),
-      totalSent: userIds.length,
-      createdAt: new Date()
+      message: message.trim()
     });
   } catch (err) {
+    await conn.rollback();
     console.error('Gửi thông báo lỗi:', err);
     res.status(500).json({ message: 'Gửi thất bại' });
+  } finally {
+    conn.release();
   }
 });
+
+// ==================== DANH SÁCH FLASHCARD SET (ADMIN) ====================
 router.get('/flashcard-sets', protect, admin, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
-    const q = req.query.q ? String(req.query.q).trim() : null;
-    const sort = req.query.sort ? String(req.query.sort) : 'newest';
+    const offset = (page - 1) * limit;
+    const q = req.query.q ? `%${req.query.q.trim()}%` : null;
+    const sort = req.query.sort || 'newest';
 
-    const match = {};
-    if (q) match.title = { $regex: q, $options: 'i' };
+    let orderBy = 'fs.createdAt DESC';
+    if (sort === 'oldest') orderBy = 'fs.createdAt ASC';
+    if (sort === 'mostCards') orderBy = 'flashcardsCount DESC';
 
-    // Aggregation pipeline: filter -> add flashcardsCount -> sort -> paginate -> populate owner & sample flashcards
-    const pipeline = [
-      { $match: match },
-      {
-        $addFields: {
-          flashcardsCount: { $size: { $ifNull: ['$flashcards', []] } }
-        }
+    const whereClause = q ? `WHERE fs.title LIKE ?` : '';
+    const params = q ? [q] : [];
+
+    const [sets] = await db.query(`
+      SELECT 
+        fs.id,
+        fs.title,
+        fs.description,
+        fs.tags,
+        fs.level,
+        fs.isPublic,
+        fs.createdAt,
+        fs.updatedAt,
+        fs.ownerId,
+        u.name AS ownerName,
+        u.email AS ownerEmail,
+        u.avatarURL,
+        COALESCE(JSON_LENGTH(fs.flashcards), 0) AS flashcardsCount,
+        JSON_EXTRACT(fs.flashcards, '$[0]') AS sample1,
+        JSON_EXTRACT(fs.flashcards, '$[1]') AS sample2,
+        JSON_EXTRACT(fs.flashcards, '$[2]') AS sample3,
+        JSON_EXTRACT(fs.flashcards, '$[3]') AS sample4,
+        JSON_EXTRACT(fs.flashcards, '$[4]') AS sample5
+      FROM flashcard_sets fs
+      LEFT JOIN users u ON fs.ownerId = u.id
+      ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `, [...params, limit, offset]);
+
+    const [totalRows] = await db.query(`
+      SELECT COUNT(*) AS total 
+      FROM flashcard_sets fs
+      ${whereClause}
+    `, params);
+
+    // Lấy 5 flashcard mẫu (nếu cần hiển thị chi tiết)
+    const formatted = sets.map(set => ({
+      ...set,
+      owner: {
+        name: set.ownerName,
+        email: set.ownerEmail,
+        avatarURL: set.avatarURL
       },
-    ];
-
-    // sort stage
-    if (sort === 'oldest') {
-      pipeline.push({ $sort: { createdAt: 1 } });
-    } else if (sort === 'mostCards') {
-      pipeline.push({ $sort: { flashcardsCount: -1 } });
-    } else {
-      pipeline.push({ $sort: { createdAt: -1 } }); // newest default
-    }
-
-    // pagination
-    pipeline.push({ $skip: (page - 1) * limit }, { $limit: limit });
-
-    // Project fields to return (you can add/remove fields as needed)
-    pipeline.push({
-      $project: {
-        title: 1,
-        description: 1,
-        tags: 1,
-        level: 1,
-        isPublic: 1,
-        owner: 1,
-        flashcardsCount: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        // optionally include only first N flashcards ids
-        flashcards: { $slice: ['$flashcards', 5] }
-      }
-    });
-
-    // run aggregate then populate owner + optionally populate flashcards fields
-    const sets = await FlashcardSet.aggregate(pipeline);
-
-    // populate owner and flashcards (if you want fields from these refs)
-    // Using mongoose.populate on plain objects requires Model.populate
-    const populated = await FlashcardSet.populate(sets, [
-      { path: 'owner', select: 'name email avatarURL' },
-      { path: 'flashcards', select: 'vocabulary meaning image createdAt' }
-    ]);
-
-    // total count for pagination (separate query)
-    const totalCount = await FlashcardSet.countDocuments(match);
+      flashcardsCount: set.flashcardsCount,
+      flashcards: [set.sample1, set.sample2, set.sample3, set.sample4, set.sample5]
+        .filter(Boolean)
+        .map(item => JSON.parse(item || '{}'))
+    }));
 
     res.json({
       page,
       limit,
-      totalCount,
-      totalPages: Math.ceil(totalCount / limit),
-      data: populated
+      totalCount: totalRows[0].total,
+      totalPages: Math.ceil(totalRows[0].total / limit),
+      data: formatted
     });
+
   } catch (err) {
     console.error('Admin get flashcard sets error:', err);
-    res.status(500).json({ message: 'Lỗi server khi lấy flashcard sets' });
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
+
 module.exports = router;

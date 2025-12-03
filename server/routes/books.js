@@ -1,268 +1,276 @@
-// routes/books.js
-
+// routes/books.js – PHIÊN BẢN MYSQL2 HOÀN HẢO 2025
 const express = require('express');
-const router = express.Router(); // 👈 Khắc phục lỗi ReferenceError: router is not defined
-const Chapter = require('../models/Chapter'); // Cần thiết cho các route chapter/progress
-const Book = require('../models/Book'); // Cần thiết cho route POST tạo sách
-// LƯU Ý: Middleware xác thực người dùng (isAuthenticated) cần được áp dụng nếu cần req.user.id
+const router = express.Router();
+const db = require('../db'); // mysql2/promise connection
+const { protect, admin } = require('../middleware/authMiddleware'); // Dùng middleware xác thực + admin
 
-// --- 1. POST: Tạo Sách Mới (POST /api/books) ---
-router.post('/', async (req, res) => {
-    try {
-        const { title, author, level, coverImage } = req.body;
+// ==================== 1. TẠO SÁCH MỚI (chỉ admin) ====================
+router.post('/', protect, admin, async (req, res) => {
+  const { title, author, level, coverImage } = req.body;
 
-        // Kiểm tra dữ liệu bắt buộc
-        if (!title || !author) {
-            return res.status(400).json({ message: 'Tiêu đề và tác giả là bắt buộc.' });
-        }
+  if (!title?.trim() || !author?.trim()) {
+    return res.status(400).json({ message: 'Tiêu đề và tác giả là bắt buộc' });
+  }
 
-        // Tạo instance sách mới
-        const newBook = new Book({
-            title,
-            author,
-            level,
-            coverImage,
-            chapters: [] // Khởi tạo mảng chapters
-        });
-
-        const savedBook = await newBook.save();
-        res.status(201).json(savedBook); // Trả về sách đã tạo, bao gồm _id
-
-    } catch (error) {
-        console.error('Lỗi khi tạo sách:', error);
-        res.status(500).json({ message: 'Lỗi server khi tạo sách', error: error.message });
-    }
-});
-
-// --- 2. GET: Lấy nội dung Chapter và Tiến độ đọc (GET /api/books/:bookId/chapters/:chapterId) ---
-// LƯU Ý: Route này phụ thuộc vào middleware xác thực để có req.user.id
-router.get('/:bookId/chapters/:chapterId', async (req, res) => {
-    try {
-        // Giả định req.user.id được cung cấp bởi middleware xác thực
-        if (!req.user || !req.user.id) {
-            return res.status(401).json({ error: 'Chưa xác thực người dùng.' });
-        }
-
-        const chapter = await Chapter.findById(req.params.chapterId)
-            .populate('book', 'title author');
-
-        if (!chapter) {
-            return res.status(404).json({ error: 'Không tìm thấy Chapter.' });
-        }
-
-        // Tìm tiến độ đọc của người dùng hiện tại
-        const userProgress = chapter.readingProgress.find(
-            p => p.user.toString() === req.user.id
-        );
-
-        res.json({
-            chapter,
-            currentPosition: userProgress?.lastPosition || 0,
-            completed: userProgress?.completed || false
-        });
-    } catch (err) {
-        console.error('Lỗi khi lấy Chapter và tiến độ:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- 3. POST: Lưu vị trí đọc (POST /api/books/progress) ---
-// LƯU Ý: Route này phụ thuộc vào middleware xác thực để có req.user.id
-router.post('/progress', async (req, res) => {
-    try {
-        // Giả định req.user.id được cung cấp bởi middleware xác thực
-        if (!req.user || !req.user.id) {
-            return res.status(401).json({ error: 'Chưa xác thực người dùng.' });
-        }
-
-        const { chapterId, position } = req.body;
-
-        if (!chapterId || position === undefined) {
-            return res.status(400).json({ error: 'Thiếu chapterId hoặc position.' });
-        }
-
-        // Cập nhật hoặc tạo mới (upsert) vị trí đọc
-        await Chapter.updateOne(
-            { _id: chapterId, "readingProgress.user": req.user.id },
-            { $set: { "readingProgress.$.lastPosition": position } },
-            { upsert: true } // Quan trọng: Nếu chưa có, sẽ thêm mới (tạo mảng readingProgress nếu cần)
-        );
-
-        res.json({ success: true, message: 'Lưu tiến độ thành công.' });
-
-    } catch (error) {
-        console.error('Lỗi khi lưu tiến độ:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-// --- 4. GET: Lấy danh sách tất cả sách (GET /api/books) ---
-router.get('/', async (req, res) => {
-    try {
-        const books = await Book.find()
-            .select('title author level coverImage chapters') // Chỉ lấy những field cần thiết
-            .populate({
-                path: 'chapters',
-                select: 'chapterNumber title', // Nếu bạn có chapterNumber
-                sort: { chapterNumber: 1 } // Sắp xếp chương theo thứ tự
-            });
-
-        // Tính số lượng chương và trả về format giống frontend đang dùng
-        const formattedBooks = books.map(book => ({
-            _id: book._id,
-            id: book._id.toString(), // Dùng để điều hướng
-            title: book.title,
-            author: book.author,
-            level: book.level || 'Chưa xác định',
-            coverImage: book.coverImage,
-            chapters: book.chapters.length,
-            // Nếu muốn hiển thị chương đầu tiên luôn có
-            firstChapterId: book.chapters[0]?._id.toString() || null
-        }));
-
-        res.json(formattedBooks);
-    } catch (error) {
-        console.error('Lỗi khi lấy danh sách sách:', error);
-        res.status(500).json({ message: 'Lỗi server', error: error.message });
-    }
-});
-// --- 5. GET: Lấy thông tin sách + danh sách chapters + totalChapters ---
-router.get('/:bookId', async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId)
-      .populate({
-        path: 'chapters',
-        select: 'chapterNumber title illustration',
-        sort: { chapterNumber: 1 }
-      });
+    const [result] = await db.query(
+      `INSERT INTO books (title, author, level, coverImage) 
+       VALUES (?, ?, ?, ?)`,
+      [title.trim(), author.trim(), level || 'N5', coverImage || null]
+    );
 
-    if (!book) {
+    res.status(201).json({
+      id: result.insertId,
+      title: title.trim(),
+      author: author.trim(),
+      level: level || 'N5',
+      coverImage: coverImage || null,
+      chapters: 0
+    });
+  } catch (err) {
+    console.error('Lỗi tạo sách:', err);
+    res.status(500).json({ message: 'Lỗi server khi tạo sách' });
+  }
+});
+
+// ==================== 2. LẤY DANH SÁCH TẤT CẢ SÁCH ====================
+router.get('/', async (req, res) => {
+  try {
+    const [books] = await db.query(`
+      SELECT 
+        b.id,
+        b.title,
+        b.author,
+        b.level,
+        b.coverImage,
+        COUNT(c.id) AS chaptersCount
+      FROM books b
+      LEFT JOIN chapters c ON c.bookId = b.id
+      GROUP BY b.id
+      ORDER BY b.createdAt DESC
+    `);
+
+    const formatted = books.map(book => ({
+      id: book.id,
+      _id: book.id.toString(),
+      title: book.title,
+      author: book.author,
+      level: book.level || 'N5',
+      coverImage: book.coverImage,
+      chapters: book.chaptersCount,
+      firstChapterId: null // sẽ được fill ở route chi tiết nếu cần
+    }));
+
+    res.json(formatted);
+  } catch (err) {
+    console.error('Lỗi lấy danh sách sách:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ==================== 3. LẤY CHI TIẾT SÁCH + DANH SÁCH CHƯƠNG ====================
+router.get('/:bookId', async (req, res) => {
+  const { bookId } = req.params;
+
+  try {
+    const [books] = await db.query(
+      `SELECT id, title, author, level, coverImage FROM books WHERE id = ?`,
+      [bookId]
+    );
+
+    if (books.length === 0) {
       return res.status(404).json({ message: 'Không tìm thấy sách' });
     }
 
-    // TRẢ VỀ ĐÚNG 1 LẦN DUY NHẤT – KHÔNG CÓ LẦN 2!!!
+    const book = books[0];
+
+    const [chapters] = await db.query(
+      `SELECT id, chapterNumber, title, illustration 
+       FROM chapters 
+       WHERE bookId = ? 
+       ORDER BY chapterNumber ASC`,
+      [bookId]
+    );
+
     res.json({
-      _id: book._id,
+      _id: book.id,
+      id: book.id,
       title: book.title,
       author: book.author,
-      level: book.level,
+      level: book.level || 'N5',
       coverImage: book.coverImage,
-      chapters: book.chapters,
-      totalChapters: book.chapters.length  // ← QUAN TRỌNG NHẤT
+      chapters: chapters.map(ch => ({
+        _id: ch.id,
+        chapterNumber: ch.chapterNumber,
+        title: ch.title,
+        illustration: ch.illustration
+      })),
+      totalChapters: chapters.length
     });
-  } catch (error) {
-    console.error('Lỗi lấy sách:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('Lỗi lấy chi tiết sách:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 
-// --- 6. GET: Lấy chapter theo bookId + chapterNumber (dễ dùng hơn _id) ---
-router.get('/:bookId/chapter/:chapterNumber', async (req, res) => {
-    try {
-        const { bookId, chapterNumber } = req.params;
+// ==================== 4. LẤY NỘI DUNG CHƯƠNG + TIẾN ĐỘ ĐỌC (có đăng nhập) ====================
+router.get('/:bookId/chapters/:chapterId', protect, async (req, res) => {
+  const { chapterId } = req.params;
+  const userId = req.user.id;
 
-        const chapter = await Chapter.findOne({
-            book: bookId,
-            chapterNumber: parseInt(chapterNumber)
-        }).select('chapterNumber title illustration content');
-
-        if (!chapter) {
-            return res.status(404).json({ message: 'Không tìm thấy chương này' });
-        }
-
-        res.json(chapter);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-// --- 7. DELETE: Xóa sách theo ID (chỉ admin được phép) ---
-// Thêm vào cuối file routes/books.js
-
-router.delete('/:bookId', async (req, res) => {
   try {
-    const { bookId } = req.params;
+    const [chapters] = await db.query(
+      `SELECT c.*, b.title AS bookTitle, b.author AS bookAuthor
+       FROM chapters c
+       JOIN books b ON c.bookId = b.id
+       WHERE c.id = ?`,
+      [chapterId]
+    );
 
-    // Kiểm tra book có tồn tại không
-    const book = await Book.findById(bookId);
-    if (!book) {
-      return res.status(404).json({ message: "Sách không tồn tại" });
+    if (chapters.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy chương' });
     }
 
-    // XÓA TẤT CẢ CHAPTERS thuộc sách này trước (rất quan trọng để tránh rác dữ liệu)
-    await Chapter.deleteMany({ book: bookId });
+    const chapter = chapters[0];
 
-    // Sau đó mới xóa sách
-    await Book.findByIdAndDelete(bookId);
+    // Lấy tiến độ đọc của user
+    const [progress] = await db.query(
+      `SELECT lastPosition, completed FROM reading_progress 
+       WHERE userId = ? AND chapterId = ?`,
+      [userId, chapterId]
+    );
 
-    res.json({ 
-      success: true, 
-      message: "Đã xóa sách và tất cả chương thành công" 
-    });
+    const userProgress = progress[0] || { lastPosition: 0, completed: false };
 
-  } catch (error) {
-    console.error('Lỗi khi xóa sách:', error);
-    
-    // Nếu ID không hợp lệ (không phải ObjectId)
-    if (error.kind === 'ObjectId') {
-      return res.status(400).json({ message: "ID sách không hợp lệ" });
-    }
-
-    res.status(500).json({ 
-      message: "Lỗi server khi xóa sách", 
-      error: error.message 
-    });
-  }
-});
-// --- 8. PATCH: Cập nhật thông tin sách (SỬA SÁCH) ---
-// Chỉ admin được phép sửa sách
-
-router.patch('/:bookId', async (req, res) => {
-  try {
-    const { bookId } = req.params;
-    const { title, author, level, coverImage } = req.body;
-
-    // Kiểm tra ít nhất có 1 field để cập nhật
-    if (!title && !author && !level && coverImage === undefined) {
-      return res.status(400).json({ 
-        message: "Vui lòng cung cấp ít nhất một trường để cập nhật (title, author, level, coverImage)" 
-      });
-    }
-
-    // Tìm sách trước
-    const book = await Book.findById(bookId);
-    if (!book) {
-      return res.status(404).json({ message: "Không tìm thấy sách để sửa" });
-    }
-
-    // Cập nhật các field nếu có gửi lên
-    if (title !== undefined) book.title = title.trim();
-    if (author !== undefined) book.author = author.trim();
-    if (level !== undefined) book.level = level;
-    if (coverImage !== undefined) book.coverImage = coverImage;
-
-    // Lưu lại
-    const updatedBook = await book.save();
-
-    // Trả về sách đã cập nhật (đúng format frontend đang mong đợi)
     res.json({
-      _id: updatedBook._id,
-      title: updatedBook.title,
-      author: updatedBook.author,
-      level: updatedBook.level || "N5",
-      coverImage: updatedBook.coverImage,
-      chapters: updatedBook.chapters?.length || 0
+      chapter: {
+        _id: chapter.id,
+        chapterNumber: chapter.chapterNumber,
+        title: chapter.title,
+        content: chapter.content,
+        illustration: chapter.illustration,
+        book: {
+          title: chapter.bookTitle,
+          author: chapter.bookAuthor
+        }
+      },
+      currentPosition: userProgress.lastPosition,
+      completed: userProgress.completed
     });
+  } catch (err) {
+    console.error('Lỗi lấy chapter:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
 
-  } catch (error) {
-    console.error('Lỗi khi sửa sách:', error);
+// ==================== 5. LẤY CHƯƠNG THEO SỐ THỨ TỰ (dễ dùng hơn) ====================
+router.get('/:bookId/chapter/:chapterNumber', async (req, res) => {
+  const { bookId, chapterNumber } = req.params;
 
-    if (error.kind === 'ObjectId') {
-      return res.status(400).json({ message: "ID sách không hợp lệ" });
+  try {
+    const [chapters] = await db.query(
+      `SELECT id, chapterNumber, title, illustration, content 
+       FROM chapters 
+       WHERE bookId = ? AND chapterNumber = ?`,
+      [bookId, parseInt(chapterNumber)]
+    );
+
+    if (chapters.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy chương' });
     }
 
-    res.status(500).json({ 
-      message: "Lỗi server khi cập nhật sách", 
-      error: error.message 
+    res.json(chapters[0]);
+  } catch (err) {
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ==================== 6. LƯU TIẾN ĐỘ ĐỌC ====================
+router.post('/progress', protect, async (req, res) => {
+  const { chapterId, position } = req.body;
+  const userId = req.user.id;
+
+  if (!chapterId || position === undefined) {
+    return res.status(400).json({ message: 'Thiếu chapterId hoặc position' });
+  }
+
+  try {
+    await db.query(
+      `INSERT INTO reading_progress (userId, chapterId, lastPosition, completed)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE 
+         lastPosition = VALUES(lastPosition),
+         completed = VALUES(completed)`,
+      [userId, chapterId, position, position >= 95 ? 1 : 0]
+    );
+
+    res.json({ success: true, message: 'Đã lưu tiến độ đọc' });
+  } catch (err) {
+    console.error('Lỗi lưu tiến độ:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ==================== 7. SỬA SÁCH (chỉ admin) ====================
+router.patch('/:bookId', protect, admin, async (req, res) => {
+  const { bookId } = req.params;
+  const { title, author, level, coverImage } = req.body;
+
+  if (!title && !author && !level && !coverImage) {
+    return res.status(400).json({ message: 'Cần ít nhất 1 trường để cập nhật' });
+  }
+
+  try {
+    const updates = [];
+    const values = [];
+
+    if (title !== undefined) { updates.push('title = ?'); values.push(title.trim()); }
+    if (author !== undefined) { updates.push('author = ?'); values.push(author.trim()); }
+    if (level !== undefined) { updates.push('level = ?'); values.push(level); }
+    if (coverImage !== undefined) { updates.push('coverImage = ?'); values.push(coverImage); }
+
+    values.push(bookId);
+
+    await db.query(
+      `UPDATE books SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    const [updated] = await db.query('SELECT * FROM books WHERE id = ?', [bookId]);
+
+    res.json({
+      id: updated[0].id,
+      title: updated[0].title,
+      author: updated[0].author,
+      level: updated[0].level,
+      coverImage: updated[0].coverImage
     });
+  } catch (err) {
+    console.error('Lỗi sửa sách:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ==================== 8. XÓA SÁCH (chỉ admin) ====================
+router.delete('/:bookId', protect, admin, async (req, res) => {
+  const { bookId } = req.params;
+
+  try {
+    // Xóa tiến độ đọc trước
+    await db.query('DELETE FROM reading_progress WHERE chapterId IN (SELECT id FROM chapters WHERE bookId = ?)', [bookId]);
+    // Xóa chapters
+    await db.query('DELETE FROM chapters WHERE bookId = ?', [bookId]);
+    // Xóa sách
+    const [result] = await db.query('DELETE FROM books WHERE id = ?', [bookId]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy sách để xóa' });
+    }
+
+    res.json({ success: true, message: 'Đã xóa sách và tất cả dữ liệu liên quan' });
+  } catch (err) {
+    console.error('Lỗi xóa sách:', err);
+    res.status(500).json({ message: 'Lỗi server' });
   }
 });
 

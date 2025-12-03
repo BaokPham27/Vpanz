@@ -25,7 +25,7 @@ import {
 import { Socket, io } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 
-const SOCKET_URL = 'http://10.249.2.233:5000';
+const SOCKET_URL = 'http://26.94.144.5:5000';
 
 interface AuthUser {
   id: string;

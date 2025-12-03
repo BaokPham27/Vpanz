@@ -47,6 +47,7 @@ export default function FlashcardSetsScreen() {
 
   const fetchFlashcardSets = async () => {
     try {
+      
       setLoading(true);
       const token = await getAuthToken();
       if (!token) {
@@ -54,13 +55,15 @@ export default function FlashcardSetsScreen() {
         setLoading(false);
         return;
       }
-      const response = await fetch(`${API_URL}/flashcard-sets`, {
+      const response = await fetch(`${API_URL}/flashcard-sets/my`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
       const data = await response.json();
+      
       if (response.ok) {
+          console.log('Fetched sets:', data); // kiểm tra xem mỗi set có _id không
         setSets(data);
       } else {
         Alert.alert('Error', data.message || 'Failed to fetch flashcard sets');
@@ -83,15 +86,17 @@ export default function FlashcardSetsScreen() {
     set.title && set.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleNavigateToSet = (setId: string) => {
-    router.push({
-      pathname: '/(auth)/flashcards/[setId]',
-      params: { setId },
-    });
-  };
+const handleNavigateToSet = (setId: string | undefined) => {
+  if (!setId) {
+    console.warn('Cannot navigate: setId is undefined');
+    return;
+  }
+  router.push(`/flashcards/${setId}`);
+};
+
 
   const handleEdit = (setId: string) => {
-    const set = sets.find(s => s._id === setId);
+    const set = sets.find(s => s.id === setId);
     if (set) {
       setEditingSetId(setId);
       setEditSetTitle(set.title);
@@ -135,7 +140,7 @@ export default function FlashcardSetsScreen() {
               console.log('Delete response data:', responseData);
 
               if (response.ok) {
-                setSets(prevSets => prevSets.filter(set => set._id !== setId));
+                setSets(prevSets => prevSets.filter(set => set.id !== setId));
                 setMenuVisibleFor(null);
                 console.log('FlashSet removed from state');
                 Alert.alert('Success', 'Flashcard set deleted successfully!');
@@ -218,7 +223,7 @@ export default function FlashcardSetsScreen() {
       const data = await response.json();
       if (response.ok) {
         setSets(prevSets =>
-          prevSets.map(set => (set._id === editingSetId ? data : set))
+          prevSets.map(set => (set.id === editingSetId ? data : set))
         );
         setEditSetTitle('');
         setEditSetDescription('');
@@ -242,7 +247,7 @@ export default function FlashcardSetsScreen() {
   };
 
   const renderSetItem = ({ item }: { item: any }) => (
-    <TouchableOpacity onPress={() => handleNavigateToSet(item._id)} style={styles.setItem}>
+    <TouchableOpacity onPress={() => handleNavigateToSet(item.id)} style={styles.setItem}>
       <View style={styles.setItemDetails}>
         <Text style={styles.setTitle}>{item.title}</Text>
         <Text style={styles.setDescription}>{item.description}</Text>
@@ -250,15 +255,15 @@ export default function FlashcardSetsScreen() {
           {item.flashcards ? item.flashcards.length : 0} cards · Updated on {new Date(item.updatedAt).toLocaleDateString()}
         </Text>
       </View>
-      <TouchableOpacity onPress={() => setMenuVisibleFor(menuVisibleFor === item._id ? null : item._id)} style={styles.menuButton}>
+      <TouchableOpacity onPress={() => setMenuVisibleFor(menuVisibleFor === item.id ? null : item.id)} style={styles.menuButton}>
         <Ionicons name="ellipsis-vertical" size={24} color="#666" />
       </TouchableOpacity>
-      {menuVisibleFor === item._id && (
+      {menuVisibleFor === item.id && (
         <View style={styles.menu}>
-          <TouchableOpacity onPress={() => handleEdit(item._id)} style={styles.menuItem}>
+          <TouchableOpacity onPress={() => handleEdit(item.id)} style={styles.menuItem}>
             <Text>Edit</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.menuItem}>
+          <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.menuItem}>
             <Text>Delete</Text>
           </TouchableOpacity>
         </View>
@@ -291,7 +296,7 @@ export default function FlashcardSetsScreen() {
       <FlatList
         data={filteredSets}
         renderItem={renderSetItem}
-        keyExtractor={item => item._id}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={<Text>No flashcard sets found.</Text>}
       />
