@@ -25,7 +25,7 @@ import StatsRow from "@/components/StatsRow";
 
 const { width } = Dimensions.get("window");
 const SIDEBAR_WIDTH = 280;
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://vpanz-api.onrender.com:5000/api";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://vpanz-api.onrender.com/api";
 
 // ==================== INTERFACES ====================
 interface Book {
