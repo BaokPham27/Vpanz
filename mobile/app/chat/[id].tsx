@@ -1,4 +1,4 @@
-// app/chat/[id].tsx – ĐÃ FIX HOÀN TOÀN: Avatar thật + ImgBB + TypeScript
+// app/chat/[id].tsx – FULLCODE ĐÃ FIX KIỂU DỮ LIỆU & AVATAR
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -53,7 +53,6 @@ export default function ChatScreen() {
   const socket = useRef<Socket | null>(null);
   const pendingMessages = useRef<Map<string, IMessage>>(new Map());
 
-  // Cache info người nhận (tên + avatar) – chỉ gọi 1 lần
   const receiverInfoRef = useRef<{ name: string; avatarURL?: string } | null>(null);
 
   if (!user || !receiverId) {
@@ -63,22 +62,24 @@ export default function ChatScreen() {
     return <SafeAreaView style={{ flex: 1, backgroundColor: '#0b1220' }} />;
   }
 
+  // ======================
+  // 🔥 FIX QUAN TRỌNG NHẤT: Luôn trả về string
+  // ======================
   const getSenderId = (sender: SenderInfo): string => {
-    if (typeof sender === 'string') return sender;
-    return sender._id || sender.id || 'unknown';
+    if (typeof sender === 'string') return String(sender);
+    return String(sender._id || sender.id || '');
   };
 
-  // Hàm tạo avatar an toàn (hỗ trợ ImgBB + headers)
   const getAvatarSource = (url?: string | null): string | undefined => {
     if (!url || url.trim() === '') return undefined;
 
     const trimmed = url.trim();
+
     if (trimmed.includes('ibb.co') || trimmed.includes('i.ibb.co')) {
-      // ImgBB cần header User-Agent
       return JSON.stringify({
         uri: trimmed,
         headers: { 'User-Agent': 'Expo App' },
-      }) as any; // GiftedChat chấp nhận stringified object
+      }) as any;
     }
     return trimmed;
   };
@@ -93,43 +94,39 @@ export default function ChatScreen() {
 
     const loadHistory = async () => {
       try {
-        // 1. Lấy lịch sử chat
         const historyRes = await fetch(`${SOCKET_URL}/api/chat/history/${receiverId}`, {
           headers: { Authorization: `Bearer ${user.token}` },
         });
         const data: RawMessage[] = await historyRes.json();
 
-        // 2. Lấy thông tin người nhận (chỉ 1 lần)
         if (!receiverInfoRef.current) {
           try {
             const usersRes = await fetch(`${SOCKET_URL}/api/users/search?q=`, {
               headers: { Authorization: `Bearer ${user.token}` },
             });
             const allUsers = await usersRes.json();
-            const found = allUsers.find((u: any) => u.id === receiverId);
+            const found = allUsers.find((u: any) => String(u.id) === String(receiverId));
             if (found) {
               receiverInfoRef.current = {
                 name: found.name,
                 avatarURL: found.avatarURL || undefined,
               };
             }
-          } catch (e) {
-            console.log('Không lấy được info người nhận');
-          }
+          } catch {}
         }
 
         const receiver = receiverInfoRef.current || { name: 'Đối phương', avatarURL: undefined };
 
         const formatted: IMessage[] = data.map((msg) => {
           const senderId = getSenderId(msg.sender);
-          const isFromMe = senderId === user.id;
+          const isFromMe = String(senderId) === String(user.id); // 🔥 FIX TẠI ĐÂY
 
           return {
             _id: msg._id,
             text: msg.message,
             createdAt: new Date(msg.createdAt),
             user: {
-              _id: isFromMe ? user.id : receiverId,
+              _id: isFromMe ? String(user.id) : String(receiverId),
               name: isFromMe ? user.name : receiver.name,
               avatar: isFromMe
                 ? getAvatarSource(user.avatarURL)
@@ -139,19 +136,18 @@ export default function ChatScreen() {
         });
 
         setMessages(formatted.reverse());
-      } catch (err: any) {
+      } catch (err) {
         console.error('Load chat history error:', err);
       }
     };
 
     loadHistory();
 
-    // Nhận tin nhắn real-time
     socket.current.on('newMessage', (msg: RawMessage) => {
       const senderId = getSenderId(msg.sender);
-      const isFromMe = senderId === user.id;
+      const isFromMe = String(senderId) === String(user.id); // 🔥 FIX
 
-      // Kiểm tra tin tạm (optimistic)
+      // Kiểm tra tin tạm
       const pendingEntry = Array.from(pendingMessages.current.entries()).find(
         ([_, m]) =>
           m.text === msg.message &&
@@ -161,8 +157,8 @@ export default function ChatScreen() {
       if (pendingEntry) {
         const [tempId] = pendingEntry;
         pendingMessages.current.delete(tempId);
-        setMessages(prev =>
-          prev.map(m =>
+        setMessages((prev) =>
+          prev.map((m) =>
             m._id === tempId
               ? { ...m, _id: msg._id, createdAt: new Date(msg.createdAt) }
               : m
@@ -171,7 +167,6 @@ export default function ChatScreen() {
         return;
       }
 
-      // Tin mới thật
       const receiver = receiverInfoRef.current || { name: 'Đối phương' };
 
       const newMsg: IMessage = {
@@ -179,7 +174,7 @@ export default function ChatScreen() {
         text: msg.message,
         createdAt: new Date(msg.createdAt),
         user: {
-          _id: senderId,
+          _id: String(senderId), // 🔥 FIX
           name: isFromMe ? user.name : receiver.name,
           avatar: isFromMe
             ? getAvatarSource(user.avatarURL)
@@ -187,7 +182,7 @@ export default function ChatScreen() {
         },
       };
 
-      setMessages(prev => GiftedChat.append(prev, [newMsg]));
+      setMessages((prev) => GiftedChat.append(prev, [newMsg]));
     });
 
     return () => {
@@ -204,11 +199,11 @@ export default function ChatScreen() {
       _id: tempId,
       text,
       createdAt: new Date(),
-      user: { _id: user.id, name: user.name },
+      user: { _id: String(user.id), name: user.name }, // 🔥 FIX
     };
 
     pendingMessages.current.set(tempId, localMsg);
-    setMessages(prev => GiftedChat.append(prev, [localMsg]));
+    setMessages((prev) => GiftedChat.append(prev, [localMsg]));
 
     socket.current.emit('sendMessage', {
       receiverId,
@@ -216,7 +211,6 @@ export default function ChatScreen() {
     });
   };
 
-  // Render components (giữ nguyên đẹp như cũ)
   const renderTime = (props: TimeProps<IMessage>) => (
     <Time
       {...props}
@@ -241,17 +235,19 @@ export default function ChatScreen() {
     <Bubble
       {...props}
       wrapperStyle={{
-        right: { backgroundColor: '#0084ff', borderTopRightRadius: 4, marginLeft: 80, marginBottom: 8 },
-        left: { backgroundColor: '#2d3748', borderTopLeftRadius: 4, marginRight: 80, marginBottom: 8 },
+        right: { backgroundColor: '#0084ff', marginLeft: 80, marginBottom: 8 },
+        left: { backgroundColor: '#2d3748', marginRight: 80, marginBottom: 8 },
       }}
     />
   );
 
   const renderAvatar = (props: any) => {
     const { currentMessage } = props;
-    if (!currentMessage?.user?.avatar || currentMessage.user._id === user.id) return null;
+    if (!currentMessage?.user?.avatar || currentMessage.user._id === String(user.id))
+      return null;
 
     let uri: string | undefined;
+
     try {
       const parsed = JSON.parse(currentMessage.user.avatar as string);
       uri = parsed.uri;
@@ -272,6 +268,7 @@ export default function ChatScreen() {
     const { currentMessage, previousMessage, position } = props;
     if (position === 'right') return null;
     if (previousMessage?.user?._id === currentMessage?.user?._id) return null;
+
     return <Text style={styles.username}>{currentMessage?.user?.name}</Text>;
   };
 
@@ -287,13 +284,15 @@ export default function ChatScreen() {
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <ImageBackground
-        source={{ uri: 'https://marketplace.canva.com/EAGQn6X58kU/2/0/1600w/canva-h%C3%ACnh-n%E1%BB%81n-m%C3%A1y-t%C3%ADnh-l%E1%BB%9Di-kh%E1%BA%B3ng-%C4%91%E1%BB%8Bnh-t%E1%BA%A1o-%C4%91%E1%BB%99ng-l%E1%BB%B1c-xanh-d%C6%B0%C6%A1ng-nh%E1%BA%A1t-kem-ki%E1%BB%83u-ch%E1%BB%AF-l%E1%BA%A1-m%E1%BA%AFt-XRi0ikFXYgc.jpg' }}
+        source={{
+          uri: 'https://marketplace.canva.com/EAGQn6X58kU/2/0/1600w/canva-h%C3%ACnh-n%E1%BB%81n-m%C3%A1y-t%C3%ADnh-l%E1%BB%9Di-kh%E1%BA%B3ng-%C4%91%E1%BB%8Bnh-t%E1%BA%A1o-%C4%91%E1%BB%99ng-l%E1%BB%B1c-xanh-d%C6%B0%C6%A1ng-nh%E1%BA%A1t-kem-ki%E1%BB%83u-ch%E1%BB%AF-l%E1%BA%A1-m%E1%BA%AFt-XRi0ikFXYgc.jpg',
+        }}
         style={{ flex: 1 }}
       >
         <GiftedChat
           messages={messages}
           onSend={onSend}
-          user={{ _id: user.id }}
+          user={{ _id: String(user.id) }} // 🔥 FIX CUỐI
           renderSend={(props) => (
             <Send {...props} containerStyle={styles.sendContainer}>
               <Text style={styles.sendText}>Gửi</Text>
@@ -312,12 +311,10 @@ export default function ChatScreen() {
           renderBubble={renderBubble}
           renderMessage={renderMessage}
           renderAvatar={renderAvatar}
-          messagesContainerStyle={{ backgroundColor: 'transparent', paddingBottom: 10 }}
-          scrollToBottomComponent={() => (
-            <View style={styles.scrollToBottomBtn}>
-              <Text style={{ color: '#fff', fontSize: 12 }}>Mới</Text>
-            </View>
-          )}
+          messagesContainerStyle={{
+            backgroundColor: 'transparent',
+            paddingBottom: 10,
+          }}
         />
       </ImageBackground>
     </SafeAreaView>
@@ -335,15 +332,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderTopWidth: 0,
   },
-  username: { color: '#8b9dc3', fontSize: 12, marginLeft: 12, marginBottom: 3, fontWeight: '600' },
+  username: {
+    color: '#8b9dc3',
+    fontSize: 12,
+    marginLeft: 12,
+    marginBottom: 3,
+    fontWeight: '600',
+  },
   avatarWrapper: { marginRight: 10, marginBottom: 10 },
   avatar: { width: 36, height: 36, borderRadius: 18 },
-  scrollToBottomBtn: {
-    backgroundColor: 'rgba(30, 41, 59, 0.9)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 15,
-    elevation: 5,
-  },
 });
